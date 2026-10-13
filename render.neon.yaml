@@ -1,0 +1,31 @@
+# Render Blueprint for a free deployment that keeps its data: the web service runs on Render's free plan
+# and the database is an external PostgreSQL (for example Neon's free plan), which does not expire.
+# In Render: New -> Blueprint -> pick this repository -> Blueprint Path: render.neon.yaml.
+# You will be asked for DATABASE_URL (the connection string from Neon, with ?sslmode=require),
+# ADMIN_EMAIL and ADMIN_PASSWORD (12+ characters).
+services:
+  - type: web
+    name: erbil-delivery-world
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # demo deployment: allows the guarded "reset demo data" button
+      - key: DEMO_MODE
+        value: "true"
+      - key: SEED_ON_EMPTY
+        value: "true"

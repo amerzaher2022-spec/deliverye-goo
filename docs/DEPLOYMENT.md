@@ -17,6 +17,18 @@ Free-tier caveats (Render's current terms apply):
 - Free PostgreSQL databases expire after a limited period. Use a paid instance (or any external PostgreSQL via `DATABASE_URL`) for anything longer than a short demo.
 - Data, including uploaded logos, lives in PostgreSQL, so it survives redeploys and restarts.
 
+## Option A2 — free, without the 30-day database limit (Render + Neon)
+
+Render's free PostgreSQL is deleted after its trial period, so for a free deployment that keeps its data, use Render only for the web service and keep the database on Neon's free plan.
+
+1. Sign in at <https://neon.com> (no card needed) and create a project in a region near Frankfurt (for example AWS eu-central-1).
+2. Copy the connection string from **Connect**. It looks like `postgresql://user:password@ep-....eu-central-1.aws.neon.tech/neondb?sslmode=require`. Keep it secret.
+3. In Render: **New → Blueprint**, choose `amerzaher2022-spec/deliverye-goo`, and set **Blueprint Path** to `render.neon.yaml`.
+4. Enter **DATABASE_URL** (the Neon string), **ADMIN_EMAIL** and **ADMIN_PASSWORD** (12+ characters).
+5. Wait for the first deploy, then open `https://<your-service>.onrender.com/` and `/admin`.
+
+Free-plan limits (check the providers' current terms): the web service sleeps after about 15 minutes without traffic and takes about a minute to wake. Neon's free plan has a small monthly storage and compute allowance, which is plenty for a demo. The Neon database also sleeps when idle and wakes on the next query.
+
 ## Option B — any Docker host
 
 ```bash
