@@ -10,7 +10,7 @@ import { toLocal, type LocalPoint } from '../../../shared/geo';
 import { distanceToRoadEdge, type RoadGraph } from '../../../shared/roads';
 import type { DistrictData } from '../../../shared/types';
 import { BoxGrid, boxesOverlap, pointInPolygon, type Box } from './collision';
-import { cloneNode, hasModel } from './assets';
+import { cloneNode, hasModel, parkedMaterial } from './assets';
 import { parkedCarGeometries } from './models';
 import { barrierTexture, facadeTexture, groundTexture, roadTexture, sidewalkTexture, type FacadeStyle } from './textures';
 
@@ -724,8 +724,8 @@ export class World {
 
   /**
    * Detailed parked cars (hatchback, saloon, SUV, pickup) as instanced meshes, one per car type, material
-   * and map cell. Splitting by cell lets the camera skip whole streets of cars that are off screen. The
-   * paint material is white so each instance takes its own colour.
+   * and map cell. Splitting by cell lets the camera skip whole streets of cars that are off screen. All
+   * cars share one baked texture atlas; the instance colour tints only the body paint (see parkedMaterial).
    */
   private buildParkedModels(mats: THREE.Matrix4[], cols: THREE.Color[], kinds: ParkedKind[]) {
     const sources = new Map<ParkedKind, { geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial; paint: boolean }[]>();
@@ -737,14 +737,11 @@ export class World {
       node.traverse((o) => {
         const src = o as THREE.Mesh;
         if (!src.isMesh) return;
-        let mat = src.material as THREE.MeshStandardMaterial;
-        const paint = mat.name === 'car_paint' || mat.name === 'car_roof';
-        if (paint) {
-          mat = mat.clone();
-          mat.color.set('#ffffff');
-        }
-        list.push({ geo: src.geometry.clone().applyMatrix4(src.matrixWorld), mat, paint });
+        const mat = parkedMaterial();
+        if (!mat) return;
+        list.push({ geo: src.geometry.clone().applyMatrix4(src.matrixWorld), mat, paint: true });
       });
+      if (!list.length) return false;
       sources.set(kind, list);
     }
     const CELL = 160;

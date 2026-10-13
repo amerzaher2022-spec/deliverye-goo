@@ -1,6 +1,6 @@
 # Test results
 
-Last run on 2026-10-13 (after the fourth pass: original cast, cars and roads) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
+Last run on 2026-10-13 (after the baked street cars) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
 
 | Check | Command | Result |
 |---|---|---|
@@ -91,6 +91,21 @@ Checked after replacing the scooter, bicycle, riders and people:
 | high | over 150 s (menu never appeared) | not measured | 26 s | 2.9 s | not measured | not measured |
 
   These timings come from a CPU renderer, so they only show relative cost, not real-device frame rate.
+
+## Baked street cars
+
+- Street cars are now light meshes (3.2k triangles each) with the full models' detail baked into one 2048 px texture atlas (`tools/models/parked.py`)
+- typecheck, the 29 API tests, the build and the 4 browser tests pass (results above are from this run)
+- Checked in the game at medium quality from close up, from the side and from above:
+  - lamps, grilles, wipers, door lines, plates and wheels show
+  - each car keeps its own paint colour
+  - glass reflects, chrome is metallic and tyres are matte
+- Fixed along the way:
+  - jagged dark notches at the bottom of the bumpers, which also affected the courier car
+  - bright outlines around the windows, caused by filtering between mask values
+- Medium quality in the test browser: the menu loads in 10 s (was 14 s), two frames take 0.9 s (was 1.3 s), and the scene draws about 380k triangles (was 450k)
+- The offline cache version was raised, so returning players download the new car files
+- Remaining: up close, the headlight edges are a little soft, because each car gets a 1024 px tile of the atlas
 
 ## Not tested
 

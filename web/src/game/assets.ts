@@ -9,6 +9,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 export type ModelFile = 'scooter' | 'bicycle' | 'people' | 'car' | 'parked';
 
 const scenes: Partial<Record<ModelFile, THREE.Object3D>> = {};
+let atlas: THREE.Texture | null = null;
 let pending: Promise<void> | null = null;
 
 function prepare(root: THREE.Object3D) {
@@ -38,8 +39,19 @@ export function loadModels(timeoutMs = 25000): Promise<void> {
   if (pending) return pending;
   const loader = new GLTFLoader();
   const files: ModelFile[] = ['scooter', 'bicycle', 'people', 'car', 'parked'];
-  const all = Promise.all(
-    files.map((f) =>
+  const atlasLoad = new THREE.TextureLoader()
+    .loadAsync('/models/parked.webp')
+    .then((t) => {
+      // the atlas follows glTF texture conventions; its alpha is a shading mask, not transparency
+      t.flipY = false;
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      atlas = t;
+    })
+    .catch((e: unknown) => console.warn('parked car atlas not loaded', e));
+  const all = Promise.all([
+    atlasLoad,
+    ...files.map((f) =>
       loader
         .loadAsync(`/models/${f}.glb`)
         .then((gltf) => {
@@ -49,7 +61,7 @@ export function loadModels(timeoutMs = 25000): Promise<void> {
         })
         .catch((e: unknown) => console.warn(`model ${f} not loaded`, e)),
     ),
-  ).then(() => undefined);
+  ]).then(() => undefined);
   pending = Promise.race([all, new Promise<void>((r) => setTimeout(r, timeoutMs))]);
   return pending;
 }
@@ -66,6 +78,45 @@ export function cloneNode(f: ModelFile, name: string): THREE.Object3D | null {
   copy.position.copy(node.position);
   copy.quaternion.copy(node.quaternion);
   return copy;
+}
+
+let atlasMaterial: THREE.MeshStandardMaterial | null = null;
+
+/**
+ * The shared material of the parked cars. Their texture atlas carries a mask in its alpha channel:
+ * 1 = body paint (tinted with the instance colour), 0.66 = glass and lamps, 0.33 = matte, 0 = chrome.
+ */
+export function parkedMaterial(): THREE.MeshStandardMaterial | null {
+  if (!atlas) return null;
+  if (atlasMaterial) return atlasMaterial;
+  const m = new THREE.MeshStandardMaterial({ map: atlas, roughness: 0.32, metalness: 0.2 });
+  m.name = 'parked_atlas';
+  m.userData.shared = true;
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <map_fragment>',
+        `vec4 atlasTexel = texture2D( map, vMapUv );
+        float paintMask = smoothstep( 0.69, 0.76, atlasTexel.a );
+        float glassMask = smoothstep( 0.5, 0.58, atlasTexel.a ) * ( 1.0 - paintMask );
+        float metalMask = 1.0 - smoothstep( 0.08, 0.16, atlasTexel.a );
+        diffuseColor.rgb *= atlasTexel.rgb;`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
+        diffuseColor.rgb *= mix( vec3( 1.0 ), vColor.rgb, paintMask );
+        #endif`,
+      )
+      // paint 0.32, glass and lamps 0.1, chrome 0.3, the rest matte
+      .replace(
+        '#include <roughnessmap_fragment>',
+        'float roughnessFactor = mix( mix( mix( 0.85, 0.3, metalMask ), 0.1, glassMask ), roughness, paintMask );',
+      )
+      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = max( metalness * paintMask, 0.9 * metalMask );');
+  };
+  atlasMaterial = m;
+  return m;
 }
 
 export const PEOPLE = ['staff', 'pizza_carrier', 'kurdish_man', 'young_man', 'woman_coat', 'worker'] as const;

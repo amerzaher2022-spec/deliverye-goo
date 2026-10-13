@@ -68,6 +68,7 @@ The MakeHuman-based people were replaced by an original cast built from this pro
 - **Cars:**
   - The player's courier hatchback is white with a charcoal roof, an amber shoulder stripe and «عالم توصيل أربيل» on the front doors.
   - Streets get saloons, large 4×4s and double-cab pickups, the cars most common in Erbil, in realistic colours.
+  - The street cars show the same lamps, grilles, glass, wipers, panel lines and wheels as the full models: that detail is baked into a texture, so a whole street of cars stays cheap to draw. The paint is glossy, the chrome is metallic and the glass reflects, each from a mask in the texture.
 - **Roads:**
   - worn asphalt with wheel tracks, cracks, tar seals, patches and chipped paint
   - paver pavements

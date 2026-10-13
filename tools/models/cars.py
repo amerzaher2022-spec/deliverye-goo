@@ -177,6 +177,8 @@ def body_cage(sp, M):
         labels += [name] * cnt
     verts = [G(p) for r in rings for p in r]
     faces, fmat = [], []
+    ax = sorted(sp['axles'])
+    lo_z, hi_z = ax[0] - sp['wheel_r'] - 0.1, ax[-1] + sp['wheel_r'] + 0.1
     for i in range(len(rings) - 1):
         for j in range(n):
             a, b = i * n + j, i * n + (j + 1) % n
@@ -184,7 +186,14 @@ def body_cage(sp, M):
             faces.append([a, d, c, b])
             jj = j if j < nh - 1 else n - 1 - j
             zc = (zs[i] + zs[i + 1]) / 2
-            fmat.append(_material(sp, labels[min(jj, len(labels) - 1)], zc, (ghs[i] + ghs[i + 1]) / 2))
+            label = labels[min(jj, len(labels) - 1)]
+            if label in ('under', 'sill') and not lo_z <= zc <= hi_z:
+                # bumper ends: paint the parts that face forwards or backwards, keep the underside dark
+                p0, p1, p2 = (np.array(rings[i][j]), np.array(rings[i][(j + 1) % n]), np.array(rings[i + 1][j]))
+                nrm = np.cross(p1 - p0, p2 - p0)
+                if abs(nrm[1]) < 0.75 * (np.linalg.norm(nrm) + 1e-9):
+                    label = 'side'
+            fmat.append(_material(sp, label, zc, (ghs[i] + ghs[i + 1]) / 2))
     faces.append(list(range(n)))
     fmat.append('paint')
     last = (len(rings) - 1) * n
@@ -619,32 +628,8 @@ def livery_decals(car_body, sp, surf_ob):
     return out
 
 
-GROUP = {'car_paint': 'car_paint', 'car_roof': 'car_paint', 'car_chrome': 'parked_bright', 'car_rim': 'parked_bright',
-         'car_plate': 'parked_bright', 'car_drl': 'parked_bright', 'car_lamp': 'parked_bright', 'car_tail': 'parked_red',
-         'car_indicator': 'parked_red', 'car_amber': 'parked_red'}
-
-
-def simplify_parked(ob, target=4600):
-    """Street cars: four materials (paint, dark, bright, red) and about 3.6k triangles."""
-    M = {'car_paint': bk.material('car_paint', (0.8, 0.8, 0.8), rough=0.28, metal=0.35, clearcoat=0.9),
-         'parked_dark': bk.material('parked_dark', (0.025, 0.027, 0.03), rough=0.25, metal=0.3),
-         'parked_bright': bk.material('parked_bright', (0.75, 0.76, 0.78), rough=0.2, metal=0.8),
-         'parked_red': bk.material('parked_red', (0.5, 0.03, 0.02), rough=0.2)}
-    names = list(M)
-    old = [m.name if m else '' for m in ob.data.materials]
-    idx = np.zeros(len(ob.data.polygons), np.int32)
-    ob.data.polygons.foreach_get('material_index', idx)
-    remap = np.array([names.index(GROUP.get(n, 'parked_dark')) for n in old], np.int32)
-    ob.data.materials.clear()
-    for n in names:
-        ob.data.materials.append(M[n])
-    ob.data.polygons.foreach_set('material_index', remap[idx])
-    tris = bk.tri_count([ob])
-    bk.decimate(ob, min(1.0, target / max(tris, 1)))
-
-
 def build_all(out_dir, preview=None):
-    """Player car (detailed, separate wheels) + parked set (one node per type, two materials)."""
+    """Player car (detailed, separate wheels) + parked set (baked, see parked.py)."""
     from build_models import export, stats, tree, set_origin, preview as pv
     report = {}
     # player courier hatchback
@@ -665,23 +650,7 @@ def build_all(out_dir, preview=None):
     if preview:
         pv(preview, 'car', (3.6, 1.6, 3.4), (0, 0.7, 0.2), lens=35)
         pv(preview, 'car_back', (-3.0, 1.8, -3.8), (0, 0.7, -0.2), lens=35)
-    # parked cars: simpler bodies, wheels merged in
-    bk.reset()
-    roots = []
-    for i, kind in enumerate(('hatch', 'sedan', 'suv', 'pickup')):
-        body, wh = build(kind, livery=False, level=1, detail=True)
-        allp = [body] + wh
-        joined = join(allp, f'parked_{kind}')
-        simplify_parked(joined)
-        r = bk.empty(f'parked_{kind}_root')
-        joined.parent = r
-        r.location.x = (i - 1.5) * 2.6
-        roots.append(r)
-    objs = [o for r in roots for o in tree(r)]
-    if preview:
-        pv(preview, 'parked', (0, 3.2, 9.5), (0, 0.7, 0), lens=32, res=(1400, 600))
-    for r in roots:
-        r.location.x = 0
-    report['parked'] = dict(stats(objs), bytes=export(objs, os.path.join(out_dir, 'parked.glb')),
-                            each={r.name: stats(tree(r)) for r in roots})
+    # parked cars: light meshes with the full detail baked into one texture atlas
+    import parked
+    report['parked'] = parked.build(out_dir, preview)
     return report

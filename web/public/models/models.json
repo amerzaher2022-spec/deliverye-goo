@@ -69,28 +69,29 @@
    "car": {
     "triangles": 21656,
     "materials": 15,
-    "bytes": 610088
+    "bytes": 608552
    },
    "parked": {
-    "triangles": 18397,
-    "materials": 4,
-    "bytes": 588472,
+    "triangles": 12799,
+    "materials": 1,
+    "bytes": 651552,
+    "atlas_bytes": 563234,
     "each": {
-     "parked_hatch_root": {
-      "triangles": 4597,
-      "materials": 4
+     "parked_hatch": {
+      "triangles": 3200,
+      "materials": 1
      },
-     "parked_sedan_root": {
-      "triangles": 4598,
-      "materials": 4
+     "parked_sedan": {
+      "triangles": 3200,
+      "materials": 1
      },
-     "parked_suv_root": {
-      "triangles": 4597,
-      "materials": 4
+     "parked_suv": {
+      "triangles": 3199,
+      "materials": 1
      },
-     "parked_pickup_root": {
-      "triangles": 4597,
-      "materials": 4
+     "parked_pickup": {
+      "triangles": 3200,
+      "materials": 1
      }
     }
    }
