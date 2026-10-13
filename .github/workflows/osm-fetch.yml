@@ -1,0 +1,65 @@
+# Downloads OpenStreetMap data for central Erbil (© OpenStreetMap contributors, ODbL) through the
+# Overpass API and commits the raw extract to data/osm/. The game's district is then built from it
+# with scripts/build-district.mjs. Run it from the Actions tab ("Run workflow"); it also runs once
+# when this file changes.
+name: Fetch OpenStreetMap data
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/osm-fetch.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query Overpass
+        run: |
+          mkdir -p data/osm
+          # whole city inside and around the 60 Meter ring road: streets (with tunnel/bridge tags) and named places
+          BBOX="36.150,43.950,36.230,44.065"
+          cat > /tmp/streets.ql <<QL
+          [out:json][timeout:180];
+          (
+            way["highway"](${BBOX});
+          );
+          out geom tags;
+          QL
+          cat > /tmp/places.ql <<QL
+          [out:json][timeout:180];
+          (
+            nwr["name"]["amenity"](${BBOX});
+            nwr["name"]["shop"](${BBOX});
+            nwr["name"]["tourism"](${BBOX});
+            nwr["name"]["office"](${BBOX});
+            nwr["name"]["leisure"](${BBOX});
+            nwr["name"]["building"](${BBOX});
+            nwr["name"]["landuse"="residential"](${BBOX});
+            nwr["name"]["place"](${BBOX});
+          );
+          out center tags;
+          QL
+          for f in streets places; do
+            for url in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter; do
+              if curl -sS --fail -m 300 -A "erbil-delivery-world/0.1 (github actions)" --data-urlencode "data@/tmp/$f.ql" "$url" -o "data/osm/$f.json"; then
+                echo "$f from $url: $(wc -c < data/osm/$f.json) bytes"; break
+              fi
+              sleep 20
+            done
+          done
+          gzip -9f data/osm/streets.json data/osm/places.json
+          ls -la data/osm
+      - name: Commit
+        run: |
+          echo "Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright. Fetched $(date -u +%F) with .github/workflows/osm-fetch.yml." > data/osm/README.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/osm
+          git commit -m "OpenStreetMap extract of central Erbil (ODbL)" || echo "no changes"
+          git push
