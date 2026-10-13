@@ -169,6 +169,7 @@ export default function GameApp() {
         },
         onTapMerchant: (id) => setOverlay({ kind: 'card', id }),
         onBump: () => toast(lang === 'ar' ? 'انتبه — الطلبية هشة' : 'Careful — the order is fragile'),
+        onRedLight: () => toast(lang === 'ar' ? 'قطعت الإشارة الحمراء! انتبه للمرور' : 'You ran a red light! Watch the traffic'),
         onSlow: (q) => setSettingsState((s) => {
           if (!s.autoQuality || s.quality === q) return s;
           const next = { ...s, quality: q };
@@ -611,7 +612,7 @@ export default function GameApp() {
             ))}
           </div>
 
-          <div className="context-action">
+          <div className={`context-action ${settings.camera === 'rider' ? 'fp' : ''}`}>
             {hud?.zone === 'pickup' &&
               (() => {
                 const origin = mission ? merchantMap.get(mission.origin_merchant_id) : undefined;
@@ -638,7 +639,7 @@ export default function GameApp() {
             )}
           </div>
 
-          <div className="panel speedo" dir="ltr">
+          <div className={`panel speedo ${settings.camera === 'rider' ? 'fp' : ''}`} dir="ltr">
             <b data-testid="speed">{Math.round(hud?.speedKmh ?? 0)}</b>
             <span>{lang === 'ar' ? 'كم/س' : 'KM/H'}</span>
           </div>

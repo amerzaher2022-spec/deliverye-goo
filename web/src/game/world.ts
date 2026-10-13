@@ -106,11 +106,11 @@ export function extrude(points: LocalPoint[], profile: [number, number][], offse
   return g;
 }
 
-type ParkedKind = 'hatch' | 'sedan' | 'suv' | 'pickup';
-const PARKED_KINDS: ParkedKind[] = ['hatch', 'sedan', 'suv', 'pickup'];
+export type ParkedKind = 'hatch' | 'sedan' | 'suv' | 'pickup';
+export const PARKED_KINDS: ParkedKind[] = ['hatch', 'sedan', 'suv', 'pickup'];
 /** half lengths for the collision boxes */
-const PARKED_LEN: Record<ParkedKind, number> = { hatch: 2.08, sedan: 2.45, suv: 2.5, pickup: 2.68 };
-function pickKind(r: number) {
+export const PARKED_LEN: Record<ParkedKind, number> = { hatch: 2.08, sedan: 2.45, suv: 2.5, pickup: 2.68 };
+export function pickKind(r: number) {
   return r < 0.28 ? 0 : r < 0.62 ? 1 : r < 0.84 ? 2 : 3;
 }
 
@@ -362,6 +362,18 @@ export class World {
         const uy = (other.y - n.y) / len;
         const roadW = this.district.roads.find((x) => x.id === e.road)?.width ?? 12;
         const c = { x: n.x + ux * (r + 2.5), y: n.y + uy * (r + 2.5) };
+        // stop line across the lanes that approach the junction (they drive on the right)
+        if (n.edges.length >= 3) {
+          const half = roadW / 2 - 1.2;
+          const line = new THREE.PlaneGeometry(half, 0.45);
+          line.rotateX(-Math.PI / 2);
+          line.rotateY(Math.atan2(ux, -uy) + Math.PI / 2);
+          const mid = (roadW > 16 ? 1.7 : 0.2) / 2 + half / 2;
+          const sx = n.x + ux * (r + 4.7) - uy * mid;
+          const sy = n.y + uy * (r + 4.7) + ux * mid;
+          line.translate(sx, 0.13, -sy);
+          zebras.push(line);
+        }
         for (let k = -roadW / 2 + 1; k <= roadW / 2 - 1; k += 1.2) {
           const s = new THREE.PlaneGeometry(0.6, 3.2);
           s.rotateX(-Math.PI / 2);
@@ -371,7 +383,10 @@ export class World {
         }
       }
     }
-    this.addMerged(discs, surfaceMaterial(q, { color: '#3d3e41', polygonOffsetFactor: -2 }));
+    // junction asphalt: the same worn surface as the roads, without lane paint
+    const junctionTex = roadTexture('secondary', false);
+    junctionTex.repeat.set(2, 2);
+    this.addMerged(discs, surfaceMaterial(q, { map: junctionTex, polygonOffsetFactor: -2 }));
     this.addMerged(zebras, surfaceMaterial(q, { color: '#e6e3da', polygonOffsetFactor: -3 }));
   }
 

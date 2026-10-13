@@ -85,7 +85,7 @@ function crack(ctx: CanvasRenderingContext2D, r: () => number, x: number, y: num
  * Layers: mottled base, aggregate grain, polished wheel tracks, tar-sealed cracks, patches, oil stains,
  * and paint that is chipped and faded where tyres run.
  */
-export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local') {
+export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local', markings = true) {
   const W = 1024;
   const [c, ctx] = canvas(W, W);
   const r = rng(kind.length * 977 + 13);
@@ -169,6 +169,7 @@ export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local'
   };
   const white = 'rgba(236,234,226,0.9)';
   const yellow = 'rgba(222,178,52,0.9)';
+  if (!markings) return toTexture(c, { repeat: true, anisotropy: 8 });
   paint(26, 10, white);
   paint(W - 26, 10, white);
   if (kind === 'arterial') {

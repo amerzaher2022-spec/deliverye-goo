@@ -14,6 +14,7 @@ import { Crowd, CROWD_SIZE } from './crowd';
 import { MerchantView, merchantFrame, roleFor, targetBeacon } from './merchants';
 import { Vehicle, type DriveInput } from './vehicle';
 import { ribbon, v3, World, type Quality } from './world';
+import { Traffic } from './traffic';
 
 export type CameraMode = 'chase' | 'far' | 'rider' | 'showcase';
 
@@ -37,6 +38,8 @@ export interface EngineCallbacks {
   onDiscover: (merchantId: number) => void;
   onTapMerchant: (merchantId: number) => void;
   onBump: (speed: number) => void;
+  /** the player drove through a red light */
+  onRedLight?: () => void;
   /** frame rate stayed low: the engine suggests a lower quality level */
   onSlow?: (suggested: Quality) => void;
 }
@@ -55,6 +58,9 @@ export class Engine {
   private vehicle!: Vehicle;
   private merchants = new Map<number, MerchantView>();
   private crowd = new Crowd();
+  private traffic: Traffic | null = null;
+  private redAt = 0;
+  private lightAt = 0;
   private crowdKey = '';
   private sun = new THREE.DirectionalLight('#ffe8c7', 2.6);
   private sky!: THREE.Mesh;
@@ -184,6 +190,12 @@ export class Engine {
       keepClear: active.flatMap((f) => [f.pickup, f.dropoff]),
     });
     this.scene.add(this.world.group);
+    if (this.traffic) {
+      this.scene.remove(this.traffic.group);
+      disposeTree(this.traffic.group);
+    }
+    this.traffic = new Traffic(this.graph, this.district, this.quality);
+    this.scene.add(this.traffic.group);
     this.setMerchants(merchants);
   }
 
@@ -454,6 +466,16 @@ export class Engine {
       this.collide();
     }
     v.sync();
+    const now = performance.now();
+    this.traffic?.update(dt, { x: v.x, y: v.y, r: v.spec.radius }, now);
+    if (this.traffic && t - this.lightAt > 0.2) {
+      this.lightAt = t;
+      const ahead = this.traffic.lightAhead(v.x, v.y, v.heading);
+      if (ahead && ahead.light === 'red' && ahead.distance < 0.5 && ahead.distance > -3 && v.speed > 3 && now - this.redAt > 6000) {
+        this.redAt = now;
+        this.cb.onRedLight?.();
+      }
+    }
     for (const m of this.merchants.values()) m.update(t);
     if (this.routeTex) this.routeTex.offset.y = -t * 1.2;
     this.animateBeacons(t);
@@ -477,7 +499,8 @@ export class Engine {
   private collide() {
     const v = this.vehicle;
     const r = v.spec.radius;
-    for (const b of this.world.grid.near(v.x, v.y, r + 40)) {
+    const moving = this.traffic?.boxesNear(v.x, v.y, r + 6) ?? [];
+    for (const b of [...this.world.grid.near(v.x, v.y, r + 40), ...moving]) {
       if (b.enabled === false) continue;
       const hit = circleVsBox(v.x, v.y, r, b);
       if (!hit) continue;
@@ -488,6 +511,7 @@ export class Engine {
       const fy = Math.cos(v.heading);
       const into = (fx * hit.nx + fy * hit.ny) * Math.sign(v.speed);
       if (into < -0.2) {
+        if (moving.includes(b)) this.traffic?.bumped(b.id, performance.now());
         const impact = Math.abs(v.speed);
         v.speed *= 0.25;
         const now = performance.now();

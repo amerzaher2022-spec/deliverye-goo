@@ -371,6 +371,18 @@
   transform: translateX(-50%);
   z-index: 6;
 }
+/* driver's-seat view: the vehicle shows its own speedometer and the handlebar fills the bottom centre */
+.context-action.fp {
+  bottom: calc(31vh + var(--safe-b));
+}
+.speedo.fp {
+  bottom: auto;
+  top: calc(14px + var(--safe-t));
+  padding: 4px 12px;
+}
+.speedo.fp b {
+  font-size: 1.3rem;
+}
 .context-action .btn {
   min-height: 48px;
   padding: 0 22px;
