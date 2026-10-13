@@ -35,7 +35,10 @@ interface Settings {
 }
 
 function loadSettings(): Settings {
-  const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  // touch screens: phones and tablets (some report a fine pointer, so also check for touch points)
+  const coarse =
+    (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) ||
+    (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
   const def: Settings = { quality: coarse ? 'medium' : 'high', autoQuality: true, controls: coarse ? 'wheel' : 'buttons', camera: 'rider' };
   try {
     const saved = { ...def, ...JSON.parse(localStorage.getItem('dg.settings') ?? '{}') } as Settings;

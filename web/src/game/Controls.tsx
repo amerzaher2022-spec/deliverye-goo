@@ -124,6 +124,12 @@ function SteerWheel({ input, car }: { input: DriveInput; car: boolean }) {
     <div
       ref={ref}
       className={`wheelpad ${active.current ? 'on' : ''}`}
+      data-testid="steer-wheel"
+      role="slider"
+      aria-label={car ? 'steering wheel' : 'handlebar'}
+      aria-valuemin={-MAX}
+      aria-valuemax={MAX}
+      aria-valuenow={Math.round(turn)}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
         active.current = { id: e.pointerId, start: angleOf(e), base: turn };

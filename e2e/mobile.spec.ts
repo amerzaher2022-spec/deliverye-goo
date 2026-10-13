@@ -13,7 +13,8 @@ test('game menu, touch controls and throttle on a phone screen', async ({ page }
   for (let i = 0; i < 3; i++) await page.getByTestId('manager-dialog').getByRole('button').tap();
   const gas = page.getByRole('button', { name: 'throttle' });
   await expect(gas).toBeVisible();
-  await expect(page.getByRole('button', { name: /يسار|Steer left/ })).toBeVisible();
+  // phones steer with a touch wheel by default
+  await expect(page.getByTestId('steer-wheel')).toBeVisible();
   // hold the throttle (pointer events, as a finger would)
   const box = (await gas.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
