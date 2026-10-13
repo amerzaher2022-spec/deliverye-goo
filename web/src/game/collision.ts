@@ -12,6 +12,9 @@ export interface Box {
   hd: number;
   id?: string;
   enabled?: boolean;
+  /** only blocks vehicles whose height is in [z0, z1] (tunnel walls, bridge parapets) */
+  z0?: number;
+  z1?: number;
 }
 
 export function boxCorners(b: Box): [number, number][] {

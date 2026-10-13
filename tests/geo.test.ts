@@ -34,7 +34,8 @@ describe('road network', () => {
 
   it('routes along streets, never shorter than the straight line', () => {
     const a = toLocal({ lat: district.landmarks[0]!.lat, lng: district.landmarks[0]!.lng }, district.origin);
-    const b = toLocal({ lat: district.landmarks[4]!.lat, lng: district.landmarks[4]!.lng }, district.origin);
+    const last = district.landmarks[district.landmarks.length - 1]!;
+    const b = toLocal({ lat: last.lat, lng: last.lng }, district.origin);
     const route = findRoute(graph, a, b);
     expect(route.length).toBeGreaterThanOrEqual(Math.hypot(a.x - b.x, a.y - b.y) - 0.01);
     for (const p of route.points.slice(1, -1)) expect(distanceToRoadEdge(graph, p)).toBeLessThanOrEqual(0.5);

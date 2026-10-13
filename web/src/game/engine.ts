@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { toLocal, type LocalPoint } from '../../../shared/geo';
-import { distanceToRoadEdge, findRoute, type RoadGraph, type Route } from '../../../shared/roads';
+import { distanceToRoadEdge, findRoute, hasGradeSeparation, roadHeightAt, type RoadGraph, type Route } from '../../../shared/roads';
 import { DISCOVERY_RADIUS_M, DROPOFF_RADIUS_M, PICKUP_RADIUS_M } from '../../../shared/rules';
 import type { DistrictData, Merchant, MissionRun, VehicleId } from '../../../shared/types';
 import { disposeOwned } from './assets';
@@ -15,6 +15,7 @@ import { MerchantView, merchantFrame, roleFor, targetBeacon } from './merchants'
 import { Vehicle, type DriveInput } from './vehicle';
 import { ribbon, v3, World, type Quality } from './world';
 import { Traffic } from './traffic';
+import { buildLandmarks, buildSigns, landmarkFootprints } from './landmarks';
 
 export type CameraMode = 'chase' | 'far' | 'rider' | 'showcase';
 
@@ -59,6 +60,7 @@ export class Engine {
   private merchants = new Map<number, MerchantView>();
   private crowd = new Crowd();
   private traffic: Traffic | null = null;
+  private graded = false;
   private redAt = 0;
   private lightAt = 0;
   private crowdKey = '';
@@ -186,23 +188,53 @@ export class Engine {
     const active = merchants.filter((m) => m.status === 'active').map((m) => merchantFrame(m, this.district, this.graph));
     this.world = new World(this.district, this.graph, {
       quality: this.quality,
-      reserved: active.map((f) => f.box),
+      reserved: [...active.map((f) => f.box), ...landmarkFootprints(this.district, this.graph)],
       keepClear: active.flatMap((f) => [f.pickup, f.dropoff]),
     });
     this.scene.add(this.world.group);
+    // real places: the citadel, the Zanyari towers, Samad restaurant, and shop signs with real names
+    const lm = buildLandmarks(this.district, this.graph, this.quality);
+    this.world.group.add(lm.group);
+    for (const b of lm.boxes) this.world.grid.add(b);
+    const signs = buildSigns(this.district, this.graph, this.world.buildings, this.quality);
+    if (signs) this.world.group.add(signs);
     if (this.traffic) {
       this.scene.remove(this.traffic.group);
       disposeTree(this.traffic.group);
     }
     this.traffic = new Traffic(this.graph, this.district, this.quality);
+    this.graded = hasGradeSeparation(this.graph);
     this.scene.add(this.traffic.group);
     this.setMerchants(merchants);
   }
 
+  /** A start point on a ground-level street a couple of hundred metres before the Iskan tunnel, facing it. */
+  private startPoint(): { road: RoadGraph['polylines'][number]; i: number } | null {
+    const lm = this.district.landmarks.find((l) => l.kind === 'tunnel');
+    if (!lm) return null;
+    const t = toLocal({ lat: lm.lat, lng: lm.lng }, this.district.origin);
+    let best: { road: RoadGraph['polylines'][number]; i: number; score: number } | null = null;
+    for (const pl of this.graph.polylines) {
+      if (pl.road.kind !== 'arterial' || pl.points.some((p) => p.z)) continue;
+      for (let i = 0; i < pl.points.length - 1; i++) {
+        const a = pl.points[i]!;
+        const b = pl.points[i + 1]!;
+        const d = Math.hypot(t.x - a.x, t.y - a.y);
+        const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const towards = ((b.x - a.x) * (t.x - a.x) + (b.y - a.y) * (t.y - a.y)) / (l * (d || 1));
+        if (d < 150 || d > 320 || towards < 0.85) continue;
+        const score = Math.abs(d - 220);
+        if (!best || score < best.score) best = { road: pl, i, score };
+      }
+    }
+    return best;
+  }
+
   private spawn(vehicleId: VehicleId) {
-    const road = this.graph.polylines.find((p) => p.road.id === 'sixty-meter') ?? this.graph.polylines[0]!;
+    const start = this.startPoint();
+    const road = start?.road ?? this.graph.polylines.find((p) => p.road.id === 'sixty-meter') ?? this.graph.polylines[0]!;
     const pts = road.points;
-    const i = Math.floor(pts.length * 0.42);
+    const i = start?.i ?? Math.floor(pts.length * 0.42);
     const a = pts[i]!;
     const b = pts[i + 1] ?? a;
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
@@ -465,9 +497,14 @@ export class Engine {
       v.step(dt / steps, this.input, this.grip);
       this.collide();
     }
+    // tunnels and bridges: follow the height of the road under the vehicle
+    if (this.graded) {
+      const h = roadHeightAt(this.graph, { x: v.x, y: v.y }, v.z) ?? 0;
+      v.z += (h - v.z) * Math.min(1, dt * 14);
+    }
     v.sync();
     const now = performance.now();
-    this.traffic?.update(dt, { x: v.x, y: v.y, r: v.spec.radius }, now);
+    this.traffic?.update(dt, { x: v.x, y: v.y, r: v.spec.radius, z: v.z }, now);
     if (this.traffic && t - this.lightAt > 0.2) {
       this.lightAt = t;
       const ahead = this.traffic.lightAhead(v.x, v.y, v.heading);
@@ -502,6 +539,8 @@ export class Engine {
     const moving = this.traffic?.boxesNear(v.x, v.y, r + 6) ?? [];
     for (const b of [...this.world.grid.near(v.x, v.y, r + 40), ...moving]) {
       if (b.enabled === false) continue;
+      // walls of a tunnel, bridge parapets: only at their own height
+      if (b.z0 !== undefined && (v.z < b.z0 || v.z > b.z1!)) continue;
       const hit = circleVsBox(v.x, v.y, r, b);
       if (!hit) continue;
       v.x += hit.nx * hit.depth;
@@ -577,8 +616,8 @@ export class Engine {
       // slow three-quarter orbit around the vehicle for the menu
       const a = this.elapsed * 0.08 + 0.75;
       const dist = car ? 7.2 : 3.9;
-      const want = new THREE.Vector3(v.x + Math.sin(v.heading + a) * dist, car ? 1.9 : 1.55, -(v.y + Math.cos(v.heading + a) * dist));
-      const centre = new THREE.Vector3(v.x, car ? 0.8 : 0.9, -v.y);
+      const want = new THREE.Vector3(v.x + Math.sin(v.heading + a) * dist, v.z + (car ? 1.9 : 1.55), -(v.y + Math.cos(v.heading + a) * dist));
+      const centre = new THREE.Vector3(v.x, v.z + (car ? 0.8 : 0.9), -v.y);
       const dir = centre.clone().sub(want).normalize();
       const right = dir.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
       const look = centre.add(right.multiplyScalar(this.showcaseOffset.x * (car ? 1.5 : 1))).add(new THREE.Vector3(0, this.showcaseOffset.y, 0));
@@ -613,8 +652,8 @@ export class Engine {
     const side = this.cameraMode === 'rider' && v.eye ? v.eye.x : 0;
     const lx = -fy * side;
     const ly = fx * side;
-    const want = new THREE.Vector3(v.x - fx * back + lx, up, -(v.y - fy * back + ly));
-    const look = new THREE.Vector3(v.x + fx * ahead + lx, this.cameraMode === 'rider' ? up - drop : 1.4, -(v.y + fy * ahead + ly));
+    const want = new THREE.Vector3(v.x - fx * back + lx, v.z + up, -(v.y - fy * back + ly));
+    const look = new THREE.Vector3(v.x + fx * ahead + lx, v.z + (this.cameraMode === 'rider' ? up - drop : 1.4), -(v.y + fy * ahead + ly));
     const k = snap ? 1 : 1 - Math.exp(-dt * (this.cameraMode === 'rider' ? 20 : 6));
     this.camPos.lerp(want, k);
     this.camLook.lerp(look, k);
@@ -682,6 +721,7 @@ export class Engine {
     this.vehicle.x = p.x;
     this.vehicle.y = p.y;
     this.vehicle.speed = 0;
+    this.vehicle.z = p.z ?? 0;
     if (heading !== undefined) this.vehicle.heading = heading;
     this.vehicle.sync();
     this.snapCamera();

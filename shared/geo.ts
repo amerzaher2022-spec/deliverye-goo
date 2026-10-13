@@ -12,6 +12,8 @@ export interface LatLng {
 export interface LocalPoint {
   x: number;
   y: number;
+  /** height above the ground (roads in tunnels or on bridges), metres */
+  z?: number;
 }
 
 const DEG = Math.PI / 180;

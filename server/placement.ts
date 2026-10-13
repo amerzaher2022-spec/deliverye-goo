@@ -22,7 +22,7 @@ export interface Placement {
 }
 
 function roadLocal(roadId: string): { pts: LocalPoint[]; width: number } {
-  const road = district.roads.find((r) => r.id === roadId);
+  const road = district.roads.find((r) => r.id === roadId) ?? district.aliases?.[roadId];
   if (!road) throw new Error(`Unknown road ${roadId}`);
   return { pts: road.coords.map(([lat, lng]) => toLocal({ lat, lng }, district.origin)), width: road.width };
 }

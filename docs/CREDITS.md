@@ -22,3 +22,8 @@ node tools/models/render-decals.mjs
 ```
 
 A full build takes about an hour on four CPU cores, mostly baking the people. Add `--fast` for a quick low-detail pass, or `--only cars` (or `scooter`, `bicycle`, `people`, `dispatcher`) to rebuild one part.
+
+## Map data
+
+Street geometry, tunnels, bridges, business names and landmark positions come from OpenStreetMap: © OpenStreetMap contributors, available under the Open Database License (ODbL), https://www.openstreetmap.org/copyright. The raw extract is in `data/osm/`. The game shows the attribution in its settings, and the dashboard map shows it too. Real business names appear only as street signs and landmarks; none of them is a playable merchant, and none of their logos is used. Before a commercial launch, confirm that businesses shown by name (for example Samad restaurant) are happy to appear.
+

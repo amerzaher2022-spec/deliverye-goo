@@ -43,6 +43,9 @@ interface Lane {
   to: number;
   ax: number;
   ay: number;
+  /** road height at the start and end */
+  az: number;
+  bz: number;
   dx: number;
   dy: number;
   len: number;
@@ -68,6 +71,8 @@ interface Turn {
   t: number;
   next: Lane;
   nextLane: number;
+  p0z?: number;
+  p2z?: number;
 }
 
 interface Car {
@@ -81,6 +86,7 @@ interface Car {
   turn: Turn | null;
   x: number;
   y: number;
+  z: number;
   h: number;
   /** after a bump: stand still until this time */
   holdUntil: number;
@@ -133,25 +139,43 @@ export class Traffic {
     this.buildCars();
   }
 
+  private roadById = new Map<string, DistrictData['roads'][number]>();
+
   private width(road: string) {
-    return this.district.roads.find((r) => r.id === road)?.width ?? 12;
+    return this.roadById.get(road)?.width ?? 12;
+  }
+
+  /** OpenStreetMap splits one street into many ways: signals group approaches by street name. */
+  private streetOf(road: string) {
+    const r = this.roadById.get(road);
+    return r?.name_en || r?.name_ar || road;
   }
 
   private buildLanes() {
     const g = this.graph;
-    const isJunction = (id: number) => new Set(g.nodes[id]!.edges.map((e) => e.road)).size >= 2;
+    for (const r of this.district.roads) this.roadById.set(r.id, r);
+    const isJunction = (id: number) => {
+      const n = g.nodes[id]!;
+      return n.edges.length >= 3 && !n.z && new Set(n.edges.map((e) => e.road)).size >= 2;
+    };
+    const major = (id: string) => ['arterial', 'primary', 'secondary'].includes(this.roadById.get(id)?.kind ?? 'local');
     for (const n of g.nodes) {
-      if (!isJunction(n.id) || n.edges.length < 3) continue;
-      const roads = [...new Set(n.edges.map((e) => e.road))];
-      const r = Math.max(...roads.map((id) => this.width(id))) / 2 + 1;
-      this.junctions.push({ id: n.id, x: n.x, y: n.y, r, roads, offset: this.rand() * PHASE * roads.length });
+      if (!isJunction(n.id)) continue;
+      // signals where two named main streets cross
+      const streets = [...new Set(n.edges.filter((e) => major(e.road)).map((e) => this.streetOf(e.road)))];
+      if (streets.length < 2) continue;
+      const r = Math.max(...n.edges.map((e) => this.width(e.road))) / 2 + 1;
+      this.junctions.push({ id: n.id, x: n.x, y: n.y, r, roads: streets, offset: this.rand() * PHASE * streets.length });
     }
     const jAt = new Map(this.junctions.map((j) => [j.id, j]));
     for (const s of g.segments) {
-      const road = this.district.roads.find((r) => r.id === s.roadId);
+      const road = this.roadById.get(s.roadId);
       const dirs: [number, number][] = road?.oneway ? [[s.fromNode, s.toNode]] : [[s.fromNode, s.toNode], [s.toNode, s.fromNode]];
       // scale the standard lane positions to this road's width
-      const offsets = (LANES[s.kind] ?? [2.4]).map((o) => o * (s.width / ({ arterial: 30, primary: 20, secondary: 14, local: 12 }[s.kind] ?? s.width)));
+      const offsets = road?.oneway
+        ? // one-way carriageway: lanes spread across the whole width
+          Array.from({ length: Math.max(1, Math.round(s.width / 3.6)) }, (_, k) => -s.width / 2 + ((k + 0.5) * s.width) / Math.max(1, Math.round(s.width / 3.6)))
+        : (LANES[s.kind] ?? [2.4]).map((o) => o * (s.width / ({ arterial: 30, primary: 20, secondary: 14, local: 12 }[s.kind] ?? s.width)));
       const lanes = offsets.length;
       for (const [from, to] of dirs) {
         const A = g.nodes[from]!;
@@ -166,6 +190,8 @@ export class Traffic {
           to,
           ax: A.x,
           ay: A.y,
+          az: A.z ?? 0,
+          bz: B.z ?? 0,
           dx: (B.x - A.x) / len,
           dy: (B.y - A.y) / len,
           len,
@@ -194,7 +220,8 @@ export class Traffic {
   }
 
   lightFor(j: Junction, road: string): Light {
-    const i = j.roads.indexOf(road);
+    const i = j.roads.indexOf(this.streetOf(road));
+    if (i < 0) return 'green';
     const cycle = PHASE * j.roads.length;
     const t = (((this.time + j.offset) % cycle) + cycle) % cycle;
     const start = i * PHASE;
@@ -350,6 +377,7 @@ export class Traffic {
         turn: null,
         x: 0,
         y: 0,
+        z: 0,
         h: 0,
         holdUntil: 0,
         box: { cx: 0, cy: 0, ux: 0, uy: 1, hw: PARKED_LEN[kind], hd: 0.95, id: `t${this.cars.length}` },
@@ -394,13 +422,18 @@ export class Traffic {
       const tx = 2 * (1 - u) * (t.p1.x - t.p0.x) + 2 * u * (t.p2.x - t.p1.x);
       const ty = 2 * (1 - u) * (t.p1.y - t.p0.y) + 2 * u * (t.p2.y - t.p1.y);
       if (Math.abs(tx) + Math.abs(ty) > 1e-6) car.h = Math.atan2(tx, ty);
+      const a = t.p0z ?? 0;
+      car.z = a + ((t.p2z ?? 0) - a) * u;
     } else {
       const p = this.lanePoint(car.e, car.lane, car.s, this.tmp);
       car.x = p.x;
       car.y = p.y;
+      car.z = car.e.az + (car.e.bz - car.e.az) * Math.max(0, Math.min(1, car.s / car.e.len));
       car.h = Math.atan2(car.e.dx, car.e.dy);
     }
     const b = car.box;
+    b.z0 = car.z - 1.5;
+    b.z1 = car.z + 2;
     b.cx = car.x;
     b.cy = car.y;
     b.ux = Math.sin(car.h);
@@ -431,7 +464,8 @@ export class Traffic {
       p1 = new THREE.Vector2(p0.x + e.dx * t, p0.y + e.dy * t);
       if (t < 0 || t > 3 * (e.exitR + next.entryR)) p1 = p0.clone().add(p2).multiplyScalar(0.5);
     } else p1 = p0.clone().add(p2).multiplyScalar(0.5);
-    const turn: Turn = { p0, p1, p2, length: 0, t: 0, next, nextLane };
+    const zAt = (l: Lane, s: number) => l.az + (l.bz - l.az) * Math.max(0, Math.min(1, s / l.len));
+    const turn: Turn = { p0, p1, p2, length: 0, t: 0, next, nextLane, p0z: zAt(e, e.len - e.exitR), p2z: zAt(next, next.entryR) };
     let len = 0;
     const a = new THREE.Vector2();
     const b = new THREE.Vector2();
@@ -446,7 +480,7 @@ export class Traffic {
   }
 
   /** Free distance ahead of `car` before it reaches another car or the player. */
-  private gapAhead(car: Car, player: { x: number; y: number; r: number }) {
+  private gapAhead(car: Car, player: { x: number; y: number; r: number; z?: number }) {
     const fx = Math.sin(car.h);
     const fy = Math.cos(car.h);
     let gap = Infinity;
@@ -461,15 +495,15 @@ export class Traffic {
     };
     for (const c of this.cars) {
       if (c === car || c.vmax === 0) continue;
-      // ignore oncoming cars
-      if (Math.sin(c.h) * fx + Math.cos(c.h) * fy < 0.2) continue;
+      // ignore oncoming cars, and cars on another level (tunnel under, bridge over)
+      if (Math.sin(c.h) * fx + Math.cos(c.h) * fy < 0.2 || Math.abs(c.z - car.z) > 2) continue;
       test(c.x, c.y, c.box.hw);
     }
-    test(player.x, player.y, player.r);
+    if (Math.abs((player.z ?? 0) - car.z) < 2) test(player.x, player.y, player.r);
     return gap;
   }
 
-  update(dt: number, player: { x: number; y: number; r: number }, nowMs: number) {
+  update(dt: number, player: { x: number; y: number; r: number; z?: number }, nowMs: number) {
     this.time += dt;
     this.updateLamps();
     if (!this.cars.length) return;
@@ -519,7 +553,7 @@ export class Traffic {
       const im = this.meshes.get(car.kind);
       if (!im) continue;
       if (car.vmax === 0) this.m.makeScale(0, 0, 0);
-      else this.m.compose(new THREE.Vector3(car.x, 0.03, -car.y), this.q.setFromAxisAngle(this.up, Math.PI - car.h), new THREE.Vector3(1, 1, 1));
+      else this.m.compose(new THREE.Vector3(car.x, car.z + 0.03, -car.y), this.q.setFromAxisAngle(this.up, Math.PI - car.h), new THREE.Vector3(1, 1, 1));
       im.setMatrixAt(car.idx, this.m);
     }
     for (const im of this.meshes.values()) im.instanceMatrix.needsUpdate = true;

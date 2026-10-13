@@ -9,6 +9,12 @@ export interface DistrictRoad {
   oneway?: boolean;
   /** [lat, lng] pairs */
   coords: [number, number][];
+  /** height of the road surface above the ground at each coordinate, metres (tunnels and their ramps
+   * are negative, bridges positive); missing means at ground level */
+  elev?: number[];
+  /** the road is covered here (OpenStreetMap tunnel=yes) or carried on a deck (bridge=yes) */
+  tunnel?: boolean;
+  bridge?: boolean;
 }
 
 export interface DistrictData {
@@ -24,6 +30,10 @@ export interface DistrictData {
   roads: DistrictRoad[];
   zones: { kind: 'commercial' | 'industrial' | 'residential'; name_en: string; polygon: [number, number][] }[];
   landmarks: { name_ar: string; name_en: string; kind: string; lat: number; lng: number }[];
+  /** named shops, restaurants and offices from OpenStreetMap: their signs go on the nearest buildings */
+  pois?: { name_ar: string; name_en: string; kind: string; lat: number; lng: number }[];
+  /** long stretches of real streets that stand in for the road ids used by the demo data */
+  aliases?: Record<string, { coords: [number, number][]; width: number }>;
 }
 
 export const BUILDING_TYPES = ['restaurant', 'shop', 'factory', 'warehouse', 'office'] as const;

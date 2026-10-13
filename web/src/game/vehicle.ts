@@ -81,6 +81,8 @@ export class Vehicle {
   /** local plane position (x east, y north) */
   x = 0;
   y = 0;
+  /** height above the ground: in a tunnel or on a bridge */
+  z = 0;
   /** bearing in radians, clockwise from north */
   heading = 0;
   /** m/s along the heading (negative = reversing) */
@@ -154,7 +156,7 @@ export class Vehicle {
   }
 
   sync() {
-    this.object.position.set(this.x, 0, -this.y);
+    this.object.position.set(this.x, this.z, -this.y);
     this.object.rotation.y = Math.PI - this.heading;
   }
 }

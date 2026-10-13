@@ -11,6 +11,7 @@ import { distanceToRoadEdge, type RoadGraph } from '../../../shared/roads';
 import type { DistrictData } from '../../../shared/types';
 import { BoxGrid, boxesOverlap, pointInPolygon, type Box } from './collision';
 import { cloneNode, hasModel, parkedMaterial } from './assets';
+import { ChunkedInstances } from './chunked';
 import { parkedCarGeometries } from './models';
 import { barrierTexture, facadeTexture, groundTexture, roadTexture, sidewalkTexture, type FacadeStyle } from './textures';
 
@@ -47,7 +48,8 @@ export function ribbon(points: LocalPoint[], width: number, y: number, tile: num
     const ny = tx;
     if (i > 0) along += Math.hypot(p.x - prev.x, p.y - prev.y);
     const h = width / 2;
-    pos.push(p.x + nx * h, y, -(p.y + ny * h), p.x - nx * h, y, -(p.y - ny * h));
+    const py = y + (p.z ?? 0);
+    pos.push(p.x + nx * h, py, -(p.y + ny * h), p.x - nx * h, py, -(p.y - ny * h));
     const u1 = uTile ? width / uTile : 1;
     uv.push(0, along / tile, u1, along / tile);
     if (i > 0) {
@@ -106,6 +108,14 @@ export function extrude(points: LocalPoint[], profile: [number, number][], offse
   return g;
 }
 
+/** Does this road leave ground level anywhere (tunnel, bridge, or their ramps)? */
+export function isGraded(points: LocalPoint[]) {
+  return points.some((p) => Math.abs(p.z ?? 0) > 0.3);
+}
+
+/** Local-plane position of an instance matrix (x east, y north). */
+const planeOf = (m: THREE.Matrix4) => ({ x: m.elements[12]!, y: -m.elements[14]! });
+
 export type ParkedKind = 'hatch' | 'sedan' | 'suv' | 'pickup';
 export const PARKED_KINDS: ParkedKind[] = ['hatch', 'sedan', 'suv', 'pickup'];
 /** half lengths for the collision boxes */
@@ -132,7 +142,7 @@ export function surfaceMaterial(quality: Quality, params: { map?: THREE.Texture;
 }
 
 /** Unit box (base at y=0) whose vertex colours darken towards the ground: cheap contact shading. */
-function shadedBox() {
+export function shadedBox() {
   const g = new THREE.BoxGeometry(1, 1, 1);
   g.translate(0, 0.5, 0);
   const pos = g.attributes.position!;
@@ -147,7 +157,7 @@ function shadedBox() {
 }
 
 /** Lambert facade whose texture tiles by the instance's real size (no stretched windows). */
-function facadeMaterial(style: FacadeStyle, bay: number, floor: number) {
+export function facadeMaterial(style: FacadeStyle, bay: number, floor: number) {
   const mat = new THREE.MeshLambertMaterial({ map: facadeTexture(style), vertexColors: true });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader.replace(
@@ -200,10 +210,10 @@ export class World {
   readonly parked: Box[] = [];
   readonly zonesLocal: { kind: string; poly: LocalPoint[] }[];
   readonly boundsLocal: { minX: number; maxX: number; minY: number; maxY: number };
-  private instanced: THREE.InstancedMesh[] = [];
-  private podiumMesh: THREE.InstancedMesh | null = null;
-  private capMesh: THREE.InstancedMesh | null = null;
-  private propMeshes: THREE.InstancedMesh[] = [];
+  private instanced: ChunkedInstances[] = [];
+  private podiumMesh: ChunkedInstances | null = null;
+  private capMesh: ChunkedInstances | null = null;
+  private propMeshes: ChunkedInstances[] = [];
   private propOwners: PropOwner[] = [];
   private parkedMeshes: THREE.InstancedMesh[] = [];
   /** where each parked slot is drawn: the meshes holding it and its instance index in them */
@@ -226,6 +236,7 @@ export class World {
     }));
     this.buildGround();
     this.buildRoads();
+    this.buildGradeSeparation();
     this.buildBuildings();
     this.buildStreetFurniture();
     this.buildParkedCars();
@@ -236,8 +247,9 @@ export class World {
     return 'residential';
   }
 
+  /** Ground-level nodes where three or more road ends meet from at least two roads. */
   private junctions() {
-    return this.graph.nodes.filter((n) => new Set(n.edges.map((e) => e.road)).size >= 2);
+    return this.graph.nodes.filter((n) => n.edges.length >= 3 && !n.z && new Set(n.edges.map((e) => e.road)).size >= 2);
   }
 
   private buildGround() {
@@ -246,14 +258,28 @@ export class World {
     const w = maxX - minX + margin * 2;
     const h = maxY - minY + margin * 2;
     const tex = groundTexture('#c9b893', 3);
-    tex.repeat.set(w / 40, h / 40);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), surfaceMaterial(this.opts.quality, { map: tex }));
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set((minX + maxX) / 2, 0, -(minY + maxY) / 2);
+    // open tunnel ramps are cut out of the ground
+    const holes = this.trenchOutlines();
+    let ground: THREE.Mesh;
+    if (holes.length) {
+      tex.repeat.set(1 / 40, 1 / 40);
+      const x0 = minX - margin;
+      const y0 = minY - margin;
+      const shape = new THREE.Shape([new THREE.Vector2(x0, y0), new THREE.Vector2(x0 + w, y0), new THREE.Vector2(x0 + w, y0 + h), new THREE.Vector2(x0, y0 + h)]);
+      for (const hole of holes) shape.holes.push(new THREE.Path(hole.map((p) => new THREE.Vector2(p.x, p.y))));
+      ground = new THREE.Mesh(new THREE.ShapeGeometry(shape), surfaceMaterial(this.opts.quality, { map: tex }));
+      ground.rotation.x = -Math.PI / 2;
+    } else {
+      tex.repeat.set(w / 40, h / 40);
+      ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), surfaceMaterial(this.opts.quality, { map: tex }));
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.set((minX + maxX) / 2, 0, -(minY + maxY) / 2);
+    }
     ground.receiveShadow = true;
     this.group.add(ground);
 
-    if (this.opts.quality !== 'low') {
+    // zone tints would cover the tunnel cuttings, so they are left out where there are any
+    if (this.opts.quality !== 'low' && !holes.length) {
       const colors: Record<string, string> = { commercial: '#cfc6b3', industrial: '#c4b392', residential: '#cbbf9f' };
       for (const z of this.zonesLocal) {
         const shape = new THREE.Shape(z.poly.map((p) => new THREE.Vector2(p.x, p.y)));
@@ -263,6 +289,152 @@ export class World {
         mesh.receiveShadow = true;
         this.group.add(mesh);
       }
+    }
+  }
+
+  /** Ground outlines of the open (uncovered) parts of roads below ground level. */
+  private trenchOutlines(): LocalPoint[][] {
+    const out: LocalPoint[][] = [];
+    for (const { road, points } of this.graph.polylines) {
+      if (road.tunnel || !points.some((p) => (p.z ?? 0) < -0.3)) continue;
+      const h = road.width / 2 + 0.3;
+      const left: LocalPoint[] = [];
+      const right: LocalPoint[] = [];
+      points.forEach((p, i) => {
+        const a = points[Math.max(0, i - 1)]!;
+        const b = points[Math.min(points.length - 1, i + 1)]!;
+        const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const nx = -(b.y - a.y) / l;
+        const ny = (b.x - a.x) / l;
+        left.push({ x: p.x + nx * h, y: p.y + ny * h });
+        right.push({ x: p.x - nx * h, y: p.y - ny * h });
+      });
+      out.push([...left, ...right.reverse()]);
+    }
+    return out;
+  }
+
+  /**
+   * Tunnels, their open ramps and bridges: retaining walls and a roof for roads below ground level (with
+   * lights inside), deck, parapets and piers for roads above it. Their collision walls only block
+   * vehicles at the matching height.
+   */
+  private buildGradeSeparation() {
+    const wallGeos: THREE.BufferGeometry[] = [];
+    const roofGeos: THREE.BufferGeometry[] = [];
+    const lightGeos: THREE.BufferGeometry[] = [];
+    const pierGeos: THREE.BufferGeometry[] = [];
+    // vertical strip along a polyline offset sideways, between two heights given per point
+    const strip = (pts: LocalPoint[], off: number, bottom: (p: LocalPoint) => number, top: (p: LocalPoint) => number) => {
+      const pos: number[] = [];
+      const idx: number[] = [];
+      pts.forEach((p, i) => {
+        const a = pts[Math.max(0, i - 1)]!;
+        const b = pts[Math.min(pts.length - 1, i + 1)]!;
+        const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const x = p.x - ((b.y - a.y) / l) * off;
+        const y = p.y + ((b.x - a.x) / l) * off;
+        pos.push(x, bottom(p), -y, x, top(p), -y);
+        if (i > 0) idx.push((i - 1) * 2, i * 2, (i - 1) * 2 + 1, (i - 1) * 2 + 1, i * 2, i * 2 + 1);
+      });
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      return g;
+    };
+    const walls = (pts: LocalPoint[], off: number, z0: (a: number, b: number) => number, z1: (a: number, b: number) => number) => {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i]!;
+        const b = pts[i + 1]!;
+        const l = Math.hypot(b.x - a.x, b.y - a.y);
+        if (l < 0.2) continue;
+        const ux = (b.x - a.x) / l;
+        const uy = (b.y - a.y) / l;
+        for (const sd of [1, -1]) {
+          this.grid.add({
+            cx: (a.x + b.x) / 2 - uy * off * sd,
+            cy: (a.y + b.y) / 2 + ux * off * sd,
+            ux,
+            uy,
+            hw: l / 2,
+            hd: 0.25,
+            z0: z0(a.z ?? 0, b.z ?? 0),
+            z1: z1(a.z ?? 0, b.z ?? 0),
+          });
+        }
+      }
+    };
+    for (const { road, points } of this.graph.polylines) {
+      if (!isGraded(points)) continue;
+      const off = road.width / 2 + 0.3;
+      const below = points.some((p) => (p.z ?? 0) < -0.3);
+      if (below) {
+        const top = (p: LocalPoint) => (road.tunnel ? -0.4 : Math.max(0.9, (p.z ?? 0) + 0.9));
+        for (const sd of [1, -1]) wallGeos.push(strip(points, off * sd, (p) => (p.z ?? 0) - 0.2, top));
+        walls(points, off, (a, b) => Math.min(a, b) - 1, () => (road.tunnel ? -1.2 : 1.0));
+        // concrete floor under the carriageway, so the joins between road pieces never show through
+        roofGeos.push(ribbon(points.map((p) => ({ x: p.x, y: p.y, z: (p.z ?? 0) - 0.06 })), road.width + 0.7, 0, 6));
+        if (road.tunnel) {
+          roofGeos.push(ribbon(points.map((p) => ({ x: p.x, y: p.y, z: -0.4 })), road.width + 0.7, 0, 6));
+          lightGeos.push(ribbon(points.map((p) => ({ x: p.x, y: p.y, z: -0.46 })), 0.35, 0, 4));
+          // portal beams over each opening
+          for (const end of [points[0]!, points[points.length - 1]!]) {
+            const g = new THREE.BoxGeometry(road.width + 1.4, 1.3, 0.6);
+            const k = end === points[0] ? 1 : points.length - 2;
+            const nb = points[k]!;
+            g.rotateY(Math.atan2(nb.x - end.x, -(nb.y - end.y)));
+            g.translate(end.x, 0.25, -end.y);
+            wallGeos.push(g);
+          }
+        }
+      } else {
+        const bridge = !!road.bridge;
+        // deck fascia (or the retaining wall of an embankment ramp), parapets on the deck
+        for (const sd of [1, -1]) {
+          wallGeos.push(strip(points, off * sd, (p) => (bridge ? (p.z ?? 0) - 0.9 : 0), (p) => (p.z ?? 0) + 0.05));
+          wallGeos.push(strip(points, (off - 0.15) * sd, (p) => (p.z ?? 0), (p) => (p.z ?? 0) + 0.95));
+        }
+        walls(points, off - 0.15, (a, b) => Math.min(a, b) - 0.5, (a, b) => Math.max(a, b) + 2);
+        walls(points, off, () => -1, (a, b) => Math.max(0, Math.min(a, b) - 0.4));
+        if (bridge) {
+          roofGeos.push(ribbon(points.map((p) => ({ x: p.x, y: p.y, z: (p.z ?? 0) - 0.9 })), road.width + 0.6, 0, 6));
+          const segs = this.segs(points);
+          const total = segs.reduce((acc, x) => acc + x.len, 0);
+          for (let d = 10; d < total - 5; d += 22) {
+            const { p, t } = this.pointAt(segs, d);
+            const z = (() => {
+              // height at this distance: interpolate between the polyline points
+              let acc = 0;
+              for (const sg of segs) {
+                if (acc + sg.len >= d) return (sg.a.z ?? 0) + ((sg.b.z ?? 0) - (sg.a.z ?? 0)) * ((d - acc) / (sg.len || 1));
+                acc += sg.len;
+              }
+              return 0;
+            })();
+            if (z < 2.5) continue;
+            const g = new THREE.BoxGeometry(1.3, z - 0.9, 1.6);
+            g.rotateY(Math.atan2(t.x, -t.y));
+            g.translate(p.x, (z - 0.9) / 2, -p.y);
+            pierGeos.push(g);
+            this.grid.add({ cx: p.x, cy: p.y, ux: t.x, uy: t.y, hw: 0.8, hd: 0.65, z0: -1, z1: z - 1.2 });
+          }
+        }
+      }
+    }
+    const concrete = new THREE.MeshLambertMaterial({ color: '#b7b1a6', side: THREE.DoubleSide });
+    // boxes and strips together: same attributes (no uv), non-indexed
+    const plain = (g: THREE.BufferGeometry) => {
+      const n = g.index ? g.toNonIndexed() : g;
+      n.deleteAttribute('uv');
+      return n;
+    };
+    this.addMerged(wallGeos.map(plain), concrete);
+    this.addMerged(roofGeos, new THREE.MeshLambertMaterial({ color: '#6d6a65', side: THREE.DoubleSide }));
+    this.addMerged(pierGeos.map(plain), concrete);
+    if (lightGeos.length) {
+      const m = new THREE.Mesh(mergeGeometries(lightGeos), new THREE.MeshBasicMaterial({ color: '#ffe2a8', side: THREE.DoubleSide }));
+      this.group.add(m);
     }
   }
 
@@ -285,20 +457,25 @@ export class World {
     const medianGeos: THREE.BufferGeometry[] = [];
     const medianTop: THREE.BufferGeometry[] = [];
     for (const { road, points } of this.graph.polylines) {
-      sideGeos.push(ribbon(points, road.width + 9, 0.05, 2.4, 2.4));
-      curbGeos.push(ribbon(points, road.width + 0.7, 0.06, 4));
-      let mat = mats.get(road.kind);
+      const graded = isGraded(points);
+      if (!graded) {
+        sideGeos.push(ribbon(points, road.width + 9, 0.05, 2.4, 2.4));
+        curbGeos.push(ribbon(points, road.width + 0.7, 0.06, 4));
+      }
+      // one-way carriageways (each half of a dual carriageway) are painted as two lanes with a dashed line
+      const style = road.oneway ? 'secondary' : road.kind;
+      let mat = mats.get(style);
       if (!mat) {
-        mat = surfaceMaterial(q, { map: roadTexture(road.kind), polygonOffsetFactor: -1 });
-        mats.set(road.kind, mat);
+        mat = surfaceMaterial(q, { map: roadTexture(style), polygonOffsetFactor: -1 });
+        mats.set(style, mat);
       }
       const mesh = new THREE.Mesh(ribbon(points, road.width, ROAD_Y[road.kind] ?? 0.08, road.width * 1.2), mat);
       mesh.receiveShadow = true;
       this.group.add(mesh);
-      if (road.kind === 'arterial') {
+      if (road.kind === 'arterial' && !road.oneway) {
         medianGeos.push(ribbon(points, 3.4, 0.24, 4));
         medianTop.push(ribbon(points, 2.6, 0.26, 4));
-        if (q !== 'low') {
+        if (q !== 'low' && !graded) {
           // concrete jersey barriers on both edges of the median, planters with shrubs between them
           for (const side of [1.25, -1.25]) barrierGeos.push(extrude(points, JERSEY.map(([x, y]) => [x * 0.8, y + 0.24]), side, 2.0));
           const segs = this.segs(points);
@@ -332,15 +509,16 @@ export class World {
       }
       bush.computeVertexNormals();
       bush.translate(0, 0.24 + 0.55 + 0.32, 0);
-      const pm = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ color: '#b9b4aa' }), planterAt.length);
-      const bm = new THREE.InstancedMesh(bush, new THREE.MeshLambertMaterial({ color: '#4f6b32', flatShading: true }), planterAt.length);
+      const shadow = { castShadow: q === 'high' };
+      const pm = new ChunkedInstances(box, new THREE.MeshLambertMaterial({ color: '#b9b4aa' }), planterAt, this.group, shadow);
+      const bm = new ChunkedInstances(bush, new THREE.MeshLambertMaterial({ color: '#4f6b32', flatShading: true }), planterAt, this.group, shadow);
       planterAt.forEach((p, i) => {
         const mtx = new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, -p.y), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.a), new THREE.Vector3(1, 1, 1));
         pm.setMatrixAt(i, mtx);
         bm.setMatrixAt(i, mtx);
       });
-      pm.castShadow = bm.castShadow = q === 'high';
-      this.group.add(pm, bm);
+      pm.finish();
+      bm.finish();
     }
 
     // plain asphalt over junctions hides crossing lane markings; zebras on each approach
@@ -434,7 +612,7 @@ export class World {
     const counts: [number, number, number] = [0, 0, 0];
     let podiums = 0;
 
-    for (const { road, points } of this.graph.polylines) {
+    for (const { road, points } of this.graph.polylines.filter((pl) => !isGraded(pl.points))) {
       for (const side of [1, -1] as const) {
         const segs = this.segs(points);
         const total = segs.reduce((s, x) => s + x.len, 0);
@@ -482,35 +660,31 @@ export class World {
     const geo = shadedBox();
     const m = new THREE.Matrix4();
     const color = new THREE.Color();
+    const at = (b: GenericBuilding) => ({ x: b.box.cx, y: b.box.cy });
     for (let k = 0 as 0 | 1 | 2; k <= 2; k = (k + 1) as 0 | 1 | 2) {
       const list = placed.filter((b) => b.kind === k);
-      const mesh = new THREE.InstancedMesh(geo, materials[k]!, Math.max(1, list.length));
-      mesh.count = list.length;
+      // list is in index order (indices were handed out per kind as buildings were placed)
+      const mesh = new ChunkedInstances(geo, materials[k]!, list.map(at), this.group, { castShadow: this.opts.quality === 'high' });
       for (const b of list) {
         mesh.setMatrixAt(b.index, this.matrixFor(b, m));
         const pal = PALETTE[k]!;
         color.set(pal[Math.floor(rand() * pal.length)]!);
         mesh.setColorAt(b.index, color);
       }
-      mesh.castShadow = this.opts.quality === 'high';
-      mesh.receiveShadow = true;
+      mesh.finish();
       this.instanced[k] = mesh;
-      this.group.add(mesh);
     }
 
     const withPodium = placed.filter((b) => b.podium >= 0);
-    const pod = new THREE.InstancedMesh(geo, facadeMaterial('shopfront', 4.5, 4.2), Math.max(1, withPodium.length));
-    pod.count = withPodium.length;
+    const pod = new ChunkedInstances(geo, facadeMaterial('shopfront', 4.5, 4.2), withPodium.map(at), this.group);
     for (const b of withPodium) pod.setMatrixAt(b.podium, this.podiumMatrix(b, m));
-    pod.receiveShadow = true;
+    pod.finish();
     this.podiumMesh = pod;
-    this.group.add(pod);
 
-    const caps = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0xb3ab9e, vertexColors: true }), Math.max(1, placed.length));
-    caps.count = placed.length;
+    const caps = new ChunkedInstances(geo, new THREE.MeshLambertMaterial({ color: 0xb3ab9e, vertexColors: true }), placed.map(at), this.group, { receiveShadow: false });
     placed.forEach((b, i) => caps.setMatrixAt(i, this.capMatrix(b, m)));
+    caps.finish();
     this.capMesh = caps;
-    this.group.add(caps);
 
     if (this.opts.quality !== 'low') this.buildRoofProps(placed, rand);
   }
@@ -556,17 +730,16 @@ export class World {
         }
       }
     }
-    const t = new THREE.InstancedMesh(tankGeo, new THREE.MeshLambertMaterial({ color: '#ffffff' }), Math.max(1, tanks.length));
-    t.count = tanks.length;
+    const t = new ChunkedInstances(tankGeo, new THREE.MeshLambertMaterial({ color: '#ffffff' }), tanks.map(planeOf), this.group);
     tanks.forEach((m, i) => {
       t.setMatrixAt(i, m);
       t.setColorAt(i, tankColors[i]!);
     });
-    const a = new THREE.InstancedMesh(acGeo, new THREE.MeshLambertMaterial({ color: '#cfd0cc' }), Math.max(1, acs.length));
-    a.count = acs.length;
+    t.finish();
+    const a = new ChunkedInstances(acGeo, new THREE.MeshLambertMaterial({ color: '#cfd0cc' }), acs.map(planeOf), this.group);
     acs.forEach((m, i) => a.setMatrixAt(i, m));
+    a.finish();
     this.propMeshes = [t, a];
-    this.group.add(t, a);
   }
 
   /**
@@ -598,9 +771,8 @@ export class World {
       for (const pm of slot.meshes) pm.setMatrixAt(slot.i, blocked ? zero : this.parkedMatrices[idx]!);
     });
     if (changed) {
-      for (const mesh of [...this.instanced, ...this.propMeshes, ...this.parkedMeshes]) mesh.instanceMatrix.needsUpdate = true;
-      if (this.capMesh) this.capMesh.instanceMatrix.needsUpdate = true;
-      if (this.podiumMesh) this.podiumMesh.instanceMatrix.needsUpdate = true;
+      for (const mesh of this.parkedMeshes) mesh.instanceMatrix.needsUpdate = true;
+      for (const c of [...this.instanced, ...this.propMeshes, this.capMesh, this.podiumMesh]) c?.markDirty();
     }
   }
 
@@ -611,7 +783,7 @@ export class World {
     const lamps: THREE.Matrix4[] = [];
     const junctions = this.junctions();
     const nearJunction = (p: LocalPoint) => junctions.some((j) => Math.hypot(j.x - p.x, j.y - p.y) < 28);
-    for (const { road, points } of this.graph.polylines) {
+    for (const { road, points } of this.graph.polylines.filter((pl) => !isGraded(pl.points))) {
       if (road.kind === 'local') continue;
       const segs = this.segs(points);
       const total = segs.reduce((s, x) => s + x.len, 0);
@@ -654,15 +826,15 @@ export class World {
       fronds.push(f);
     }
     const crown = mergeGeometries(fronds);
-    const trunks = new THREE.InstancedMesh(trunk, new THREE.MeshLambertMaterial({ color: 0x7b6650 }), Math.max(1, palms.length));
-    const crowns = new THREE.InstancedMesh(crown, new THREE.MeshLambertMaterial({ color: 0x4f6b3a, side: THREE.DoubleSide }), Math.max(1, palms.length));
-    trunks.count = crowns.count = palms.length;
+    const palmShadow = { castShadow: this.opts.quality === 'high' };
+    const trunks = new ChunkedInstances(trunk, new THREE.MeshLambertMaterial({ color: 0x7b6650 }), palms.map(planeOf), this.group, palmShadow);
+    const crowns = new ChunkedInstances(crown, new THREE.MeshLambertMaterial({ color: 0x4f6b3a, side: THREE.DoubleSide }), palms.map(planeOf), this.group, palmShadow);
     palms.forEach((m, i) => {
       trunks.setMatrixAt(i, m);
       crowns.setMatrixAt(i, m);
     });
-    trunks.castShadow = crowns.castShadow = this.opts.quality === 'high';
-    this.group.add(trunks, crowns);
+    trunks.finish();
+    crowns.finish();
 
     const pole = new THREE.CylinderGeometry(0.08, 0.12, 9, 6);
     pole.translate(0, 4.5, 0);
@@ -671,10 +843,9 @@ export class World {
     arm.translate(1.15, 8.9, 0);
     const head = new THREE.BoxGeometry(0.75, 0.14, 0.32);
     head.translate(2.25, 8.82, 0);
-    const lampMesh = new THREE.InstancedMesh(mergeGeometries([pole, arm, head]), new THREE.MeshLambertMaterial({ color: 0x5d6268 }), Math.max(1, lamps.length));
-    lampMesh.count = lamps.length;
+    const lampMesh = new ChunkedInstances(mergeGeometries([pole, arm, head]), new THREE.MeshLambertMaterial({ color: 0x5d6268 }), lamps.map(planeOf), this.group);
     lamps.forEach((m, i) => lampMesh.setMatrixAt(i, m));
-    this.group.add(lampMesh);
+    lampMesh.finish();
   }
 
   /** Parked cars along kerbs (decorative, but solid). */
@@ -687,7 +858,7 @@ export class World {
     const mats: THREE.Matrix4[] = [];
     const cols: THREE.Color[] = [];
     const kinds: ParkedKind[] = [];
-    for (const { road, points } of this.graph.polylines) {
+    for (const { road, points } of this.graph.polylines.filter((pl) => !isGraded(pl.points))) {
       if (road.kind === 'arterial') continue;
       const segs = this.segs(points);
       const total = segs.reduce((s, x) => s + x.len, 0);
@@ -702,8 +873,8 @@ export class World {
           const ny = t.x * side;
           const at = { x: p.x + nx * (road.width / 2 - 1.15), y: p.y + ny * (road.width / 2 - 1.15) };
           if (keep.some((k) => Math.hypot(k.x - at.x, k.y - at.y) < 16)) continue;
-          // fewer parked cars at medium quality (phones)
-          if (this.opts.quality === 'medium' && rand() < 0.4) continue;
+          // the real city has kilometres of kerb: thin the parked cars out (most at medium quality, for phones)
+          if (rand() < (this.opts.quality === 'medium' ? 0.72 : 0.45)) continue;
           const kind = PARKED_KINDS[pickKind(rand())]!;
           const hw = PARKED_LEN[kind];
           if (this.opts.reserved.some((r) => boxesOverlap(r, { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: hw + 0.05, hd: 0.9 }, 3))) continue;

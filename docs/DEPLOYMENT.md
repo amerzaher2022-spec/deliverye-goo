@@ -29,6 +29,10 @@ Render's free PostgreSQL is deleted after its trial period, so for a free deploy
 
 Free-plan limits (check the providers' current terms): the web service sleeps after about 15 minutes without traffic and takes about a minute to wake. Neon's free plan has a small monthly storage and compute allowance, which is plenty for a demo. The Neon database also sleeps when idle and wakes on the next query.
 
+## After updating an existing deployment to the real Erbil map
+
+A database seeded before the real map holds demo businesses at the old, schematic positions. Open the dashboard, and use **Reset demo data** (available while `DEMO_MODE=true`) once, so the demo businesses are placed on the real streets.
+
 ## Option B — any Docker host
 
 ```bash

@@ -448,7 +448,8 @@ describe('daily challenges', () => {
     for (const m of missions.filter((x) => x.time_limit_s).slice(0, 3)) {
       const r = (await player.post(`/api/player/missions/${m.id}/accept`)).body.run;
       await player.post(`/api/player/runs/${r.id}/collect`, local(m.pickup));
-      await db.query(`UPDATE mission_runs SET collected_at = now() - interval '30 seconds' WHERE id = $1`, [r.id]);
+      // real streets: deliveries are kilometres long, so leave a plausible riding time
+      await db.query(`UPDATE mission_runs SET collected_at = now() - interval '300 seconds' WHERE id = $1`, [r.id]);
       const res = await player.post(`/api/player/runs/${r.id}/deliver`, local(m.destination));
       expect(res.status).toBe(200);
     }

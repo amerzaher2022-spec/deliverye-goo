@@ -23,6 +23,6 @@ Prepare: open `/admin` on a laptop and the game `/` on a phone or a second tab. 
 | 24 | **Demo data**: type `RESET` to restore the original dataset (only works when `DEMO_MODE=true`) | Dashboard |
 
 Talking points that stay accurate:
-- The street layout is a schematic of the Sixty Meter Street area, not a survey. Businesses, prices and analytics history are fictional.
+- The streets are real (OpenStreetMap) for central Erbil: Sixty Meter Street (Kurdistan Street) with its tunnels, Iskan Street, the citadel, the Zanyari towers and Samad restaurant. The demo businesses, prices and analytics history are fictional.
 - Package prices are hypothetical. Nothing in the product takes payment or signs a contract.
 - Rewards are virtual and cannot be withdrawn.
