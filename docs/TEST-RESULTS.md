@@ -1,6 +1,6 @@
 # Test results
 
-Last run on 2026-10-13 (after the baked street cars) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
+Last run on 2026-10-13 (after the real Erbil map, traffic and driver's-seat view) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
 
 | Check | Command | Result |
 |---|---|---|
@@ -106,6 +106,20 @@ Checked after replacing the scooter, bicycle, riders and people:
 - Medium quality in the test browser: the menu loads in 10 s (was 14 s), two frames take 0.9 s (was 1.3 s), and the scene draws about 380k triangles (was 450k)
 - The offline cache version was raised, so returning players download the new car files
 - Remaining: up close, the headlight edges are a little soft, because each car gets a 1024 px tile of the atlas
+
+## Real Erbil map, traffic, driver's-seat view
+
+- typecheck, the 29 API tests, the build and the 4 browser tests pass (results above are from this run). Two tests were adjusted for the real map:
+  - deliveries are kilometres long now, so the challenge test leaves a plausible riding time
+  - the route test uses the first and last landmark
+- The phone test now checks the touch steering wheel, which phones get by default.
+- Checked in the game (Chromium, software GPU):
+  - the start on Sixty Meter Street before the Iskan tunnel
+  - driving down the ramp into the tunnel (height goes from 0 to -6.2 m) and through it
+  - traffic stopping at a red light, and the scooter stopping behind a car
+  - the citadel, the Zanyari towers and Samad restaurant
+  - the scooter and car first-person views, with their speedometers
+- Medium quality in the test browser: the menu loads in about 13 s, two frames take 1.3–1.4 s, and the scene draws about 670k triangles. Buildings and props are drawn per map square, and parked cars were thinned out, to reach these numbers.
 
 ## Not tested
 
