@@ -479,3 +479,59 @@ export function ManagerDialog({ text, onNext, buttonLabel }: { text: string; onN
     </div>
   );
 }
+
+export function DirectoryPanel({
+  merchants,
+  featured,
+  distance,
+  onOpen,
+  onClose,
+}: {
+  merchants: Merchant[];
+  featured: Set<number>;
+  distance: (m: Merchant) => number | null;
+  onOpen: (id: number) => void;
+  onClose: () => void;
+}) {
+  const { t, pick, lang } = useI18n();
+  const sorted = [...merchants].sort((a, b) => Number(featured.has(b.id)) - Number(featured.has(a.id)) || (distance(a) ?? 0) - (distance(b) ?? 0));
+  return (
+    <Sheet title={`🏪 ${t('businesses')}`} onClose={onClose} wide>
+      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }} data-testid="directory">
+        {sorted.map((m) => {
+          const d = distance(m);
+          return (
+            <button key={m.id} className={`card ${featured.has(m.id) ? 'branded' : ''}`} style={{ textAlign: 'start', display: 'flex', gap: 10, alignItems: 'center' }} onClick={() => onOpen(m.id)}>
+              {m.logo_url && <img className="logo sm" src={m.logo_url} alt="" />}
+              <span style={{ minWidth: 0 }}>
+                <b style={{ display: 'block' }}>{pick(m.name_ar, m.name_en)}</b>
+                <span className="small muted">
+                  {pick(m.category?.name_ar, m.category?.name_en)}
+                  {d !== null && ` · ${fmtDistance(d, lang)}`}
+                </span>
+                {featured.has(m.id) && (
+                  <span className="chip gold" style={{ marginTop: 4 }}>
+                    ★ {t('featured')}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Sheet>
+  );
+}
+
+export function InteriorPickup({ merchant, onCollect, onClose, busy }: { merchant: Merchant; onCollect: () => void; onClose: () => void; busy: boolean }) {
+  const { t, pick, lang } = useI18n();
+  return (
+    <Sheet title={`🚪 ${pick(merchant.name_ar, merchant.name_en)}`} onClose={onClose}>
+      <div className="interior" style={{ background: `linear-gradient(180deg, ${merchant.brand_color} 0 12%, #6b4a2f 12% 55%, #3a2a1c 55% 62%, #c8a77e 62%)` }} />
+      <p>{lang === 'ar' ? 'دخلت إلى المحل. الطلب جاهز على الكاونتر.' : 'You stepped inside. The order is ready at the counter.'}</p>
+      <button className="btn primary" onClick={onCollect} disabled={busy} data-testid="interior-collect">
+        🤲 {t('collect')}
+      </button>
+    </Sheet>
+  );
+}

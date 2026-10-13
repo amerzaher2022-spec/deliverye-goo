@@ -80,10 +80,23 @@ export function buildRoadGraph(district: DistrictData): RoadGraph {
   }
 
   const nodes: RoadNode[] = [];
+  // hash grid so merging stays fast with thousands of OpenStreetMap vertices
+  const cells = new Map<string, number[]>();
   const nodeAt = (p: LocalPoint): number => {
-    for (const n of nodes) if (Math.abs(n.x - p.x) < MERGE && Math.abs(n.y - p.y) < MERGE) return n.id;
-    nodes.push({ id: nodes.length, x: p.x, y: p.y, edges: [] });
-    return nodes.length - 1;
+    const cx = Math.floor(p.x / MERGE);
+    const cy = Math.floor(p.y / MERGE);
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (const id of cells.get(`${cx + dx},${cy + dy}`) ?? []) {
+          const n = nodes[id]!;
+          if (Math.abs(n.x - p.x) < MERGE && Math.abs(n.y - p.y) < MERGE) return id;
+        }
+    const id = nodes.length;
+    nodes.push({ id, x: p.x, y: p.y, edges: [] });
+    const key = `${cx},${cy}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key)!.push(id);
+    return id;
   };
 
   const segments: RoadSegment[] = [];

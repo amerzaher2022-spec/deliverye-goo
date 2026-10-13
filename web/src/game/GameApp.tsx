@@ -9,7 +9,7 @@ import { useI18n } from '../i18n';
 import { TouchControls } from './Controls';
 import { Engine, type CameraMode, type HudState } from './engine';
 import { FullMap, Minimap } from './Minimap';
-import { ManagerDialog, MerchantCard, MissionBoard, PackagesPanel, ProgressPanel, ResultScreen, Sheet, type DeliveryResult } from './panels';
+import { DirectoryPanel, InteriorPickup, ManagerDialog, MerchantCard, MissionBoard, PackagesPanel, ProgressPanel, ResultScreen, Sheet, type DeliveryResult } from './panels';
 import { fontsReady } from './textures';
 import { fmtClock, fmtDistance } from './time';
 import type { Quality } from './world';
@@ -65,6 +65,8 @@ type Overlay =
   | { kind: 'settings' }
   | { kind: 'progress'; tab?: 'history' | 'achievements' | 'challenges' }
   | { kind: 'packages' }
+  | { kind: 'directory' }
+  | { kind: 'interior'; id: number }
   | { kind: 'result'; result: DeliveryResult };
 
 export default function GameApp() {
@@ -436,6 +438,9 @@ export default function GameApp() {
                 <button className="btn" onClick={() => setOverlay({ kind: 'progress', tab: 'achievements' })}>
                   🏅 {t('achievements')}
                 </button>
+                <button className="btn" onClick={() => setOverlay({ kind: 'directory' })} data-testid="open-directory">
+                  🏪 {t('businesses')}
+                </button>
                 <button className="btn" onClick={() => setOverlay({ kind: 'packages' })}>
                   📣 {t('advertise')}
                 </button>
@@ -478,6 +483,9 @@ export default function GameApp() {
               </button>
             </div>
             <div className="hud-actions">
+              <button className="icon-btn" aria-label={t('businesses')} onClick={() => setOverlay({ kind: 'directory' })}>
+                🏪
+              </button>
               <button
                 className="icon-btn"
                 aria-label={t('camera')}
@@ -518,11 +526,19 @@ export default function GameApp() {
           </div>
 
           <div className="context-action">
-            {hud?.zone === 'pickup' && (
-              <button className="btn primary" onClick={() => void collect()} disabled={busy} data-testid="collect">
-                🤲 {t('collect')}
-              </button>
-            )}
+            {hud?.zone === 'pickup' && (() => {
+              const origin = mission ? merchantMap.get(mission.origin_merchant_id) : undefined;
+              const inside = origin?.interior_enabled || mission?.type === 'interior_pickup';
+              return inside && origin ? (
+                <button className="btn primary" onClick={() => setOverlay({ kind: 'interior', id: origin.id })} disabled={busy} data-testid="collect">
+                  🚪 {lang === 'ar' ? 'ادخل واستلم' : 'Go inside & collect'}
+                </button>
+              ) : (
+                <button className="btn primary" onClick={() => void collect()} disabled={busy} data-testid="collect">
+                  🤲 {t('collect')}
+                </button>
+              );
+            })()}
             {hud?.zone === 'dropoff' && (
               <button className="btn good" onClick={() => void deliver()} disabled={busy} data-testid="deliver">
                 ✅ {t('deliver')}
@@ -669,6 +685,26 @@ export default function GameApp() {
       )}
       {player && overlay.kind === 'progress' && (
         <ProgressPanel player={player} initialTab={overlay.tab} onPlayer={setPlayer} onClose={() => setOverlay(screen === 'play' ? { kind: 'pause' } : { kind: 'none' })} />
+      )}
+      {world && overlay.kind === 'directory' && (
+        <DirectoryPanel
+          merchants={world.merchants}
+          featured={featured}
+          distance={(m) => distanceTo(m.entrance.lat, m.entrance.lng)}
+          onOpen={(id) => setOverlay({ kind: 'card', id })}
+          onClose={() => setOverlay({ kind: 'none' })}
+        />
+      )}
+      {overlay.kind === 'interior' && merchantMap.get(overlay.id) && (
+        <InteriorPickup
+          merchant={merchantMap.get(overlay.id)!}
+          busy={busy}
+          onClose={() => setOverlay({ kind: 'none' })}
+          onCollect={() => {
+            setOverlay({ kind: 'none' });
+            void collect();
+          }}
+        />
       )}
       {world && overlay.kind === 'packages' && <PackagesPanel packages={world.packages} onClose={() => setOverlay({ kind: 'none' })} />}
       {overlay.kind === 'result' && (
