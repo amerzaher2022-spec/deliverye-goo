@@ -1,7 +1,7 @@
 // Service worker: caches the app shell and hashed assets so the game starts
 // fast and survives a flaky connection. API calls always go to the network:
 // merchant data, missions and rewards must come from the server.
-const CACHE = 'edw-v1';
+const CACHE = 'edw-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -34,6 +34,23 @@ self.addEventListener('fetch', (event) => {
             }
             return res;
           }),
+      ),
+    );
+    return;
+  }
+  if (url.pathname.startsWith('/models/') || url.pathname.startsWith('/img/')) {
+    // large 3D models: serve the cached copy at once and refresh it in the background
+    event.respondWith(
+      caches.open(CACHE).then((c) =>
+        c.match(event.request).then((hit) => {
+          const fresh = fetch(event.request)
+            .then((res) => {
+              if (res.ok) c.put(event.request, res.clone());
+              return res;
+            })
+            .catch(() => hit);
+          return hit || fresh;
+        }),
       ),
     );
     return;

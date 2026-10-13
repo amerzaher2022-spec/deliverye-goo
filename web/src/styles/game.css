@@ -799,14 +799,26 @@
   animation: rise 0.22s ease;
 }
 .dialog .avatar {
-  width: 42px;
-  height: 42px;
+  position: relative;
+  width: 58px;
+  height: 58px;
   flex: none;
+  overflow: hidden;
   border-radius: 50%;
   border: 1px solid rgba(227, 139, 29, 0.6);
+  background: radial-gradient(circle at 50% 35%, #4a4e55, #1b1d20 75%);
   color: var(--amber-hi);
   display: grid;
   place-items: center;
+}
+.dialog .avatar img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 12%;
 }
 .dialog .who {
   font-size: 0.7rem;

@@ -1,6 +1,6 @@
 # Test results
 
-Run on 2026-10-13 in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
+Last run on 2026-10-13 (after the third-pass 3D models) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
 
 | Check | Command | Result |
 |---|---|---|
@@ -55,8 +55,31 @@ Screenshots were taken and reviewed at 1280×720, 1366×820 and 1440×860 (deskt
 - a rotation hint that sat behind the nearby-business button
 - a mobile menu button that showed on desktop
 
+## 3D models (vehicles and people, third pass)
+
+Checked after replacing the scooter, bicycle, riders and people:
+- typecheck, the 29 API tests, the build and the 4 browser tests all pass again (results above are from this run)
+- in the browser (Chromium, software GPU):
+  - the GLB files load
+  - the menu shows the yellow scooter and the bicycle, each with its rider
+  - the chase view shows the rider from behind
+  - the rider view shows the hands on the grips, the mirrors and the headlight
+  - restaurant staff with foil trays and a "!" wait at the pickup
+  - pedestrians stand outside businesses at medium and high quality
+  - the dispatcher portrait appears in the dispatch dialog
+- a security-policy bug found during this check was fixed: `connect-src` lacked `blob:`, which three.js needs to decode the textures inside the GLB files
+- Blender (Cycles) previews of every model were reviewed for fit, clipping and texture errors. Fixed along the way:
+  - logos left on the shirts
+  - socks showing through the tight jeans
+  - waistbands showing through two of the tops
+  - hair showing through the cap
+  - wheel origins
+  - shared materials that mixed up skin and hair textures
+
+![Generated models](img-models.jpg)
+
 ## Not tested
 
-- Real iPhone and Android hardware (touch feel, GPU performance, Safari quirks)
+- Real iPhone and Android hardware (touch feel, GPU performance, Safari quirks), including frame rate with the new models and the pavement crowd
 - The public deployment, since none exists yet
 - OpenStreetMap tile loading and Nominatim search, which were blocked in the build environment

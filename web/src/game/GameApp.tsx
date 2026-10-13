@@ -8,6 +8,7 @@ import { ApiError, api } from '../api';
 import { Coin, Icon } from '../icons';
 import '../styles/game.css';
 import { useI18n } from '../i18n';
+import { loadModels } from './assets';
 import { TouchControls } from './Controls';
 import { Engine, type CameraMode, type HudState } from './engine';
 import { FullMap, Minimap } from './Minimap';
@@ -119,7 +120,7 @@ export default function GameApp() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [w, p] = await Promise.all([api.get<WorldPayload>('/api/world'), api.post<PlayerProfile>('/api/player/session'), fontsReady()]);
+      const [w, p] = await Promise.all([api.get<WorldPayload>('/api/world'), api.post<PlayerProfile>('/api/player/session'), fontsReady(), loadModels()]);
       const [ms, disc] = await Promise.all([api.get<Mission[]>('/api/player/missions'), api.get<number[]>('/api/player/discoveries')]);
       versionRef.current = w.version;
       setWorld(w);
@@ -397,7 +398,7 @@ export default function GameApp() {
   const vehicleLocked = player ? !player.unlocked_vehicles.includes(menuVehicle) : false;
   const vehicleClass: Record<VehicleId, [string, string]> = {
     bicycle: ['دراجة توصيل خفيفة', 'Light courier bicycle'],
-    motorcycle: ['دراجة نارية 125cc', '125cc delivery scooter'],
+    motorcycle: ['سكوتر كلاسيكي', 'Classic scooter'],
     car: ['سيارة هاتشباك للتوصيل', 'Delivery hatchback'],
   };
   const stepVehicle = (dir: 1 | -1) => void chooseVehicle(VEHICLES[(VEHICLES.indexOf(menuVehicle) + VEHICLES.length + dir) % VEHICLES.length]!);
@@ -767,6 +768,11 @@ export default function GameApp() {
             {lang === 'ar' ? 'لوحة المفاتيح: الأسهم أو WASD للقيادة، المسافة للفرامل.' : 'Keyboard: arrows or WASD to drive, Space to brake.'}
           </p>
           <p className="small muted">{world && pick(world.district.attribution, world.district.attribution)}</p>
+          <p className="small faint">
+            {lang === 'ar'
+              ? 'الشخصيات ثلاثية الأبعاد مبنية من بيانات MakeHuman المفتوحة. قميص بلا أكمام: Mindfront (CC BY 4.0). الجينز والقميص بفتحة V: punkduck (CC BY 3.0).'
+              : '3D people built from the open MakeHuman data set. Tank top by Mindfront (CC BY 4.0); jeans and V-neck top by punkduck (CC BY 3.0).'}
+          </p>
         </Sheet>
       )}
       {player && overlay.kind === 'progress' && (

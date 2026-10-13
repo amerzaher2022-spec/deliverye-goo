@@ -38,7 +38,8 @@ const CSP = [
   // Leaflet positions tiles and markers with inline styles
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
-  "connect-src 'self' https://nominatim.openstreetmap.org",
+  // blob: lets three.js decode the textures embedded in the GLB models (ImageBitmapLoader uses fetch)
+  "connect-src 'self' blob: https://nominatim.openstreetmap.org",
   "font-src 'self' data:",
   "worker-src 'self'",
   "manifest-src 'self'",

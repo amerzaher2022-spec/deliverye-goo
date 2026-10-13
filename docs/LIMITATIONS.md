@@ -16,7 +16,10 @@ Stated plainly, so the demo is never over-sold.
 ## Design and realism
 
 - The city is **semi-realistic and procedural**: road geometry comes from the district data; buildings, facades, rooftop tanks, parked cars and palms are generated decoration, not copies of real Erbil buildings.
-- Vehicles and people are low-poly models built in code with physically based materials. They are not photoreal scanned assets, and there are no traffic or pedestrian AI.
+- The scooter, bicycle, riders and people are detailed generated models (see [DESIGN](DESIGN.md#vehicles-and-people-third-pass)). They follow the style of the reference screenshots but are not copies of them. The reference game's commercial assets were not available and were not used. The car is still the simpler extruded hatchback.
+- People hold fixed poses: there is no walking or riding animation, no pedestrian AI and no traffic. The handlebar does not turn with the steering; only the front wheel turns, by a small angle.
+- The people come from the MakeHuman data set. Its licence position for commercial use should be reviewed before launch; see [CREDITS](CREDITS.md). The CC BY clothing assets are credited in the game's settings screen.
+- The models add about 4.9 MB to the first load (cached afterwards). If they fail to load within 25 seconds, the game uses the older procedural models.
 - Interiors are a 2D "inside the shop" panel for interior pickups, not a 3D interior scene.
 - Lighting is a fixed afternoon setting; there is no day/night cycle or weather.
 

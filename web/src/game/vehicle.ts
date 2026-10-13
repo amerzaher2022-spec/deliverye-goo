@@ -1,10 +1,44 @@
-// Player vehicles: low-poly models built from primitives, and an arcade
-// driving model with per-vehicle acceleration, braking, steering and top speed.
+// Player vehicles: detailed scooter and bicycle models with a seated rider
+// (GLB files from tools/models), procedural fallbacks, and an arcade driving
+// model with per-vehicle acceleration, braking, steering and top speed.
 
 import * as THREE from 'three';
 import { VEHICLE_SPECS, type VehicleSpec } from '../../../shared/rules';
 import type { VehicleId } from '../../../shared/types';
+import { cloneNode, hasModel } from './assets';
 import { buildBicycle, buildCar, buildScooter, type VehicleModel } from './models';
+
+/** Rider eye positions measured on the generated models (tools/models/build_models.py). */
+const EYE = { scooter: new THREE.Vector3(0, 1.565, 0.1), bicycle: new THREE.Vector3(0, 1.755, 0.01) };
+
+function detailed(file: 'scooter' | 'bicycle'): VehicleModel | null {
+  if (!hasModel(file)) return null;
+  const body = cloneNode(file, `${file}_body`);
+  const front = cloneNode(file, `${file}_front_wheel`);
+  const rear = cloneNode(file, `${file}_rear_wheel`);
+  if (!body || !front || !rear) return null;
+  const root = new THREE.Group();
+  const lean = new THREE.Group();
+  root.add(lean);
+  // the front wheel spins inside a pivot that steers
+  const pivot = new THREE.Group();
+  pivot.position.copy(front.position);
+  front.position.set(0, 0, 0);
+  pivot.add(front);
+  lean.add(body, pivot, rear);
+  const rider = cloneNode(file, `rider_${file}`);
+  if (rider) lean.add(rider);
+  return {
+    root,
+    wheels: [front, rear],
+    steer: [pivot],
+    lean,
+    rider,
+    riderHead: rider?.getObjectByName(`rider_${file}_head`) ?? null,
+    eye: EYE[file],
+    steerScale: 0.35,
+  };
+}
 
 export interface DriveInput {
   throttle: number; // 0..1
@@ -29,15 +63,22 @@ export class Vehicle {
   private wheelAngle = 0;
   private steerVisual = 0;
   readonly rider: THREE.Object3D | null;
+  readonly riderHead: THREE.Object3D | null;
+  readonly eye: THREE.Vector3 | null;
+  private steerScale: number;
 
   constructor(readonly id: VehicleId) {
     this.spec = VEHICLE_SPECS[id];
-    const model: VehicleModel = id === 'car' ? buildCar() : id === 'motorcycle' ? buildScooter() : buildBicycle();
+    const model: VehicleModel =
+      id === 'car' ? buildCar() : id === 'motorcycle' ? (detailed('scooter') ?? buildScooter()) : (detailed('bicycle') ?? buildBicycle());
     this.object.add(model.root);
     this.lean = model.lean;
     this.wheels = model.wheels;
     this.frontWheels = model.steer;
     this.rider = model.rider;
+    this.riderHead = model.riderHead ?? null;
+    this.eye = model.eye ?? null;
+    this.steerScale = model.steerScale ?? 1;
   }
 
   /** Advance the physics. `surfaceGrip` < 1 when off the road. */
@@ -70,7 +111,7 @@ export class Vehicle {
     this.wheelAngle += (this.speed * dt) / radius;
     for (const w of this.wheels) w.rotation.x = this.wheelAngle;
     // smooth steering animation instead of snapping the wheels
-    this.steerVisual += (-input.steer * 0.42 - this.steerVisual) * Math.min(1, dt * 10);
+    this.steerVisual += (-input.steer * 0.42 * this.steerScale - this.steerVisual) * Math.min(1, dt * 10);
     for (const w of this.frontWheels) w.rotation.y = this.steerVisual;
     if (this.id !== 'car') this.lean.rotation.z += (this.yawRate * sp * 0.05 - this.lean.rotation.z) * Math.min(1, dt * 6);
   }

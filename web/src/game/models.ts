@@ -249,6 +249,12 @@ export interface VehicleModel {
   /** roll for two-wheelers */
   lean: THREE.Group;
   rider: THREE.Object3D | null;
+  /** the rider's head (hidden in first-person view so the arms and hands stay visible) */
+  riderHead?: THREE.Object3D | null;
+  /** rider eye position in the vehicle frame, for the first-person camera */
+  eye?: THREE.Vector3;
+  /** fraction of the steering angle shown on the front wheel */
+  steerScale?: number;
 }
 
 function wheelObject(radius: number, width: number, spokes = 0) {

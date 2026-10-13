@@ -536,6 +536,7 @@ export function ManagerDialog({ text, onNext, buttonLabel }: { text: string; onN
   return (
     <div className="dialog panel" data-testid="manager-dialog" role="status">
       <div className="avatar" aria-hidden>
+        <img src="/img/dispatcher.webp" alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />
         <Icon name="headset" size={20} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>

@@ -8,8 +8,10 @@ import { toLocal, type LocalPoint } from '../../../shared/geo';
 import { distanceToRoadEdge, findRoute, type RoadGraph, type Route } from '../../../shared/roads';
 import { DISCOVERY_RADIUS_M, DROPOFF_RADIUS_M, PICKUP_RADIUS_M } from '../../../shared/rules';
 import type { DistrictData, Merchant, MissionRun, VehicleId } from '../../../shared/types';
+import { disposeOwned } from './assets';
 import { circleVsBox } from './collision';
-import { MerchantView, merchantFrame, targetBeacon } from './merchants';
+import { Crowd, CROWD_SIZE } from './crowd';
+import { MerchantView, merchantFrame, roleFor, targetBeacon } from './merchants';
 import { Vehicle, type DriveInput } from './vehicle';
 import { ribbon, v3, World, type Quality } from './world';
 
@@ -52,6 +54,8 @@ export class Engine {
   private world!: World;
   private vehicle!: Vehicle;
   private merchants = new Map<number, MerchantView>();
+  private crowd = new Crowd();
+  private crowdKey = '';
   private sun = new THREE.DirectionalLight('#ffe8c7', 2.6);
   private sky!: THREE.Mesh;
   private lastFrame = performance.now();
@@ -63,6 +67,7 @@ export class Engine {
   /** touch controls write here */
   readonly touch: DriveInput = { throttle: 0, brake: 0, steer: 0 };
   private cameraMode: CameraMode = 'chase';
+  private baseFov = 55;
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private run: MissionRun | null = null;
@@ -171,6 +176,7 @@ export class Engine {
       v.dispose();
     }
     this.merchants.clear();
+    this.crowdKey = '';
     const active = merchants.filter((m) => m.status === 'active').map((m) => merchantFrame(m, this.district, this.graph));
     this.world = new World(this.district, this.graph, {
       quality: this.quality,
@@ -269,7 +275,20 @@ export class Engine {
       this.world.grid.add(view.frame.box);
     }
     this.world.updateReserved([...this.merchants.values()].map((v) => v.frame.box));
+    this.rebuildCrowd();
     this.applyRunMarkers();
+  }
+
+  /** People on the pavements; rebuilt only when the businesses or the quality level change. */
+  private rebuildCrowd() {
+    const views = [...this.merchants.values()];
+    const key = `${this.quality}:${views.map((v) => `${v.merchant.id}@${v.merchant.updated_at}`).sort().join(',')}`;
+    if (key === this.crowdKey && this.crowd.group.parent) return;
+    for (const b of this.crowd.boxes) this.world.grid.remove(b);
+    this.crowd.build(views.map((v) => ({ merchant: v.merchant, frame: v.frame })), CROWD_SIZE[this.quality]);
+    for (const b of this.crowd.boxes) this.world.grid.add(b);
+    if (!this.crowd.group.parent) this.scene.add(this.crowd.group);
+    this.crowdKey = key;
   }
 
   merchantFrame(id: number) {
@@ -308,7 +327,7 @@ export class Engine {
     } else if (mission.destination_merchant_id && this.merchants.has(mission.destination_merchant_id)) {
       this.merchants.get(mission.destination_merchant_id)!.setTarget('dropoff');
     } else {
-      this.customerBeacon = targetBeacon('dropoff', this.target);
+      this.customerBeacon = targetBeacon('dropoff', this.target, undefined, roleFor(null, 'dropoff', [...String(run.id)].reduce((a, c) => a + c.charCodeAt(0), 0)));
       this.scene.add(this.customerBeacon);
     }
   }
@@ -387,7 +406,8 @@ export class Engine {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // wider view in portrait so the road ahead stays visible
-    this.camera.fov = w < h ? 70 : 55;
+    this.baseFov = w < h ? 70 : 55;
+    this.camera.fov = this.baseFov;
     this.camera.updateProjectionMatrix();
   }
 
@@ -482,11 +502,32 @@ export class Engine {
     v.y = Math.max(bnd.minY - 150, Math.min(bnd.maxY + 150, v.y));
   }
 
+  /** First-person view hides the rider's head (detailed models) or the whole rider (procedural ones). */
+  private showRider(firstPerson: boolean) {
+    const v = this.vehicle;
+    if (!v.rider) return;
+    if (v.riderHead) {
+      v.rider.visible = true;
+      v.riderHead.visible = !firstPerson;
+    } else v.rider.visible = !firstPerson;
+    const near = firstPerson && v.eye ? 0.06 : 0.5;
+    const fov = this.baseFov + (firstPerson && v.eye ? 24 : 0);
+    if (this.camera.near !== near || this.camera.fov !== fov) {
+      this.camera.near = near;
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
   private animateBeacons(t: number) {
     const s = 1 + Math.sin(t * 4) * 0.12;
     this.scene.traverse((o) => {
       if (o.name === 'pulse') o.scale.set(s, s, s);
       else if (o.name === 'bob') o.position.y = 3.3 + Math.sin(t * 3) * 0.25;
+      else if (o.name === 'bang') {
+        o.position.y = 2.2 + Math.sin(t * 3) * 0.07;
+        o.rotation.y = t * 1.6;
+      }
     });
   }
 
@@ -502,6 +543,7 @@ export class Engine {
     let back = car ? 7.6 : 5.2;
     let up = car ? 3.0 : 2.5;
     let ahead = 8;
+    let drop = 0.5;
     if (this.snapNext) {
       snap = true;
       this.snapNext = false;
@@ -509,7 +551,7 @@ export class Engine {
     if (this.cameraMode === 'showcase') {
       // slow three-quarter orbit around the vehicle for the menu
       const a = this.elapsed * 0.08 + 0.75;
-      const dist = car ? 7.2 : 4.6;
+      const dist = car ? 7.2 : 3.9;
       const want = new THREE.Vector3(v.x + Math.sin(v.heading + a) * dist, car ? 1.9 : 1.55, -(v.y + Math.cos(v.heading + a) * dist));
       const centre = new THREE.Vector3(v.x, car ? 0.8 : 0.9, -v.y);
       const dir = centre.clone().sub(want).normalize();
@@ -520,7 +562,7 @@ export class Engine {
       this.camLook.lerp(look, k);
       this.camera.position.copy(this.camPos);
       this.camera.lookAt(this.camLook);
-      if (this.vehicle.rider) this.vehicle.rider.visible = true;
+      this.showRider(false);
       this.sky.position.copy(this.camera.position);
       this.sky.scale.setScalar(this.camera.far * 0.9);
       return;
@@ -533,9 +575,16 @@ export class Engine {
       back = car ? -0.35 : -0.05;
       up = car ? 1.25 : 1.78;
       ahead = 20;
+      if (v.eye) {
+        // from the rider's eyes, looking a little down so the hands and handlebar sit at the bottom of the view
+        back = 0.1 - v.eye.z;
+        up = v.eye.y + 0.08;
+        ahead = 6;
+        drop = 2.25;
+      }
     }
     const want = new THREE.Vector3(v.x - fx * back, up, -(v.y - fy * back));
-    const look = new THREE.Vector3(v.x + fx * ahead, this.cameraMode === 'rider' ? up - 0.5 : 1.4, -(v.y + fy * ahead));
+    const look = new THREE.Vector3(v.x + fx * ahead, this.cameraMode === 'rider' ? up - drop : 1.4, -(v.y + fy * ahead));
     const k = snap ? 1 : 1 - Math.exp(-dt * (this.cameraMode === 'rider' ? 20 : 6));
     this.camPos.lerp(want, k);
     this.camLook.lerp(look, k);
@@ -545,8 +594,7 @@ export class Engine {
     }
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
-    // hide the rider's own body in first-person view
-    if (this.vehicle.rider) this.vehicle.rider.visible = this.cameraMode !== 'rider';
+    this.showRider(this.cameraMode === 'rider');
     this.sky.position.copy(this.camera.position);
     this.sky.scale.setScalar(this.camera.far * 0.9);
     if (this.sun.castShadow) {
@@ -632,15 +680,7 @@ export class Engine {
 }
 
 function disposeTree(root: THREE.Object3D) {
-  root.traverse((o) => {
-    const m = o as THREE.Mesh;
-    m.geometry?.dispose();
-    const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : [];
-    for (const mat of mats) {
-      (mat as THREE.MeshBasicMaterial).map?.dispose();
-      mat.dispose();
-    }
-  });
+  disposeOwned(root);
 }
 
 function chevronTexture() {

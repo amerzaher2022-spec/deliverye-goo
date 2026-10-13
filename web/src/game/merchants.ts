@@ -8,6 +8,7 @@ import { toLocal, type LocalPoint } from '../../../shared/geo';
 import { nearestOnNetwork, type RoadGraph } from '../../../shared/roads';
 import type { BuildingType, DistrictData, Merchant } from '../../../shared/types';
 import type { Box } from './collision';
+import { disposeOwned, person, type PersonId } from './assets';
 import { MAT, bakeStatic, pedestrian } from './models';
 import { v3 } from './world';
 import { facadeTexture, hazardTexture, loadImage, pinTexture, shade, signTexture, stripeTexture } from './textures';
@@ -335,13 +336,20 @@ export class MerchantView {
   setTarget(kind: 'pickup' | 'dropoff' | null) {
     if (this.marker) {
       this.group.remove(this.marker);
+      disposeOwned(this.marker);
       this.marker = null;
     }
     if (!kind) return;
-    this.marker = targetBeacon(kind, kind === 'pickup' ? this.frame.pickup : this.frame.dropoff, this.brand());
-    // staff member waits with the order, facing the street
-    const person = this.marker.getObjectByName('person');
-    if (person) person.rotation.y = Math.atan2(-this.frame.front.x, this.frame.front.y);
+    const f = this.frame;
+    this.marker = targetBeacon(kind, kind === 'pickup' ? f.pickup : f.dropoff, this.brand(), roleFor(this.merchant, kind, this.merchant.id));
+    // the person waits on the pavement between the kerb and the door, facing the street
+    const who = this.marker.getObjectByName('person');
+    if (who) {
+      if (who.userData.facesPlusZ) {
+        who.rotation.y = Math.atan2(f.front.x, -f.front.y);
+        who.position.set(-f.front.x * 2.2, 0, f.front.y * 2.2);
+      } else who.rotation.y = Math.atan2(-f.front.x, f.front.y);
+    }
     this.group.add(this.marker);
   }
 
@@ -353,21 +361,39 @@ export class MerchantView {
 
   dispose() {
     this.disposed = true;
-    this.group.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
-      const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-      for (const m of mats) {
-        const mm = m as THREE.MeshBasicMaterial;
-        mm.map?.dispose();
-        m.dispose();
-      }
-    });
+    disposeOwned(this.group);
   }
+
 }
 
-/** Mission marker: soft light column, kerb ring and a person with the parcel. */
-export function targetBeacon(kind: 'pickup' | 'dropoff', at: LocalPoint, shirt = '#3a3d41') {
+/** Who hands over or receives the order at a business. */
+export function roleFor(m: Merchant | null, kind: 'pickup' | 'dropoff', seed = 0): PersonId {
+  if (kind === 'dropoff' || !m) return (['woman_casual', 'jacket_man', 'cap_man'] as const)[Math.abs(seed) % 3]!;
+  if (m.building_type === 'factory' || m.building_type === 'warehouse') return 'worker';
+  if (m.building_type === 'office') return 'jacket_man';
+  const name = `${m.name_en} ${m.name_ar}`.toLowerCase();
+  if (name.includes('pizza') || name.includes('بيتزا')) return 'pizza_carrier';
+  if (m.building_type === 'restaurant' || m.category?.slug === 'restaurants') return 'staff';
+  return 'woman_casual';
+}
+
+/** Floating exclamation mark over the person waiting with an order. */
+function exclamation() {
+  const mat = new THREE.MeshBasicMaterial({ color: '#f5c400' });
+  const g = new THREE.Group();
+  g.name = 'bang';
+  const bar = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.26, 4, 10), mat);
+  bar.position.y = 0.26;
+  bar.scale.set(1.15, 1, 0.75);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), mat);
+  dot.position.y = 0;
+  g.add(bar, dot);
+  g.position.y = 2.2;
+  return g;
+}
+
+/** Mission marker: soft light column, kerb ring and a person with the order. */
+export function targetBeacon(kind: 'pickup' | 'dropoff', at: LocalPoint, shirt = '#3a3d41', who?: PersonId) {
   const color = '#e38b1d';
   const grp = new THREE.Group();
   grp.position.copy(v3(at));
@@ -383,9 +409,13 @@ export function targetBeacon(kind: 'pickup' | 'dropoff', at: LocalPoint, shirt =
   const fill = new THREE.Mesh(new THREE.CircleGeometry(3.3, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }));
   fill.rotation.x = -Math.PI / 2;
   fill.position.y = 0.19;
-  const p = pedestrian(kind === 'pickup' ? shirt : '#4b5563', kind === 'pickup');
+  const model = who ? person(who) : null;
+  const p = model ?? pedestrian(kind === 'pickup' ? shirt : '#4b5563', kind === 'pickup');
   p.name = 'person';
+  // generated people face +z, the procedural fallback faces -z
+  p.userData.facesPlusZ = Boolean(model);
   p.position.set(2.4, 0, 0);
+  if (model && kind === 'pickup') p.add(exclamation());
   grp.add(column, ring, fill, p);
   return grp;
 }
