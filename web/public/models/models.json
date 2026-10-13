@@ -1,135 +1,48 @@
 {
  "report": {
   "people": {
-   "triangles": 73221,
-   "materials": 31,
-   "bytes": 2617888,
+   "triangles": 46000,
+   "materials": 6,
+   "bytes": 1914584,
    "each": {
     "staff": {
-     "triangles": 13132,
-     "materials": 9,
-     "by_material": {
-      "eyes_brown.brown_eye": 172,
-      "brows.brows_eyebrow001": 192,
-      "lashes.lashes_Eyelashes01": 368,
-      "hair_auburn.hair_auburn": 4108,
-      "staff_shirt.staff_suit": 1180,
-      "shoes_black.shoes03": 894,
-      "skin.skin_f": 5246,
-      "foil": 324,
-      "foil_lid": 648
-     }
+     "triangles": 9000,
+     "materials": 1
     },
     "pizza_carrier": {
-     "triangles": 14312,
-     "materials": 9,
-     "by_material": {
-      "eyes_brown.brown_eye": 172,
-      "brows.brows_eyebrow001": 192,
-      "lashes.lashes_Eyelashes01": 368,
-      "hair_brown.hair_brown": 5352,
-      "pink_top.pink_suit": 1531,
-      "shoes_blue.shoes06": 664,
-      "skin.skin_f2": 5703,
-      "kraft": 324,
-      "pizza_print": 6
-     }
+     "triangles": 9000,
+     "materials": 1
     },
-    "cap_man": {
-     "triangles": 10678,
-     "materials": 9,
-     "by_material": {
-      "eyes_brown.brown_eye": 172,
-      "brows.brows_eyebrow010": 192,
-      "lashes.lashes_Eyelashes01": 368,
-      "hair_dark.hair_dark": 1050,
-      "tank_grey.tank_grey": 466,
-      "jeans_dark.jeans_dark": 1176,
-      "shoes_trainers.shoes02": 664,
-      "skin.skin_m2": 5474,
-      "cap_28512b": 1116
-     }
+    "kurdish_man": {
+     "triangles": 7000,
+     "materials": 1
     },
-    "jacket_man": {
-     "triangles": 12045,
-     "materials": 8,
-     "by_material": {
-      "eyes_brown.brown_eye": 172,
-      "brows.brows_eyebrow001": 192,
-      "lashes.lashes_Eyelashes01": 368,
-      "hair_dark.hair_dark": 3678,
-      "jacket_grey.jacket_grey": 1671,
-      "shoes_black.shoes03": 895,
-      "moustache.moustache": 120,
-      "skin.skin_m": 4949
-     }
+    "young_man": {
+     "triangles": 7000,
+     "materials": 1
+    },
+    "woman_coat": {
+     "triangles": 7000,
+     "materials": 1
     },
     "worker": {
-     "triangles": 12049,
-     "materials": 7,
-     "by_material": {
-      "eyes_brown.brown_eye": 172,
-      "brows.brows_eyebrow010": 192,
-      "lashes.lashes_Eyelashes01": 368,
-      "hair_dark.hair_dark": 3344,
-      "overalls.worksuit": 1949,
-      "shoes_brown.shoes01": 719,
-      "skin.skin_m2": 5305
-     }
-    },
-    "woman_casual": {
-     "triangles": 11005,
-     "materials": 8,
-     "by_material": {
-      "eyes_brown.brown_eye": 172,
-      "brows.brows_eyebrow001": 192,
-      "lashes.lashes_Eyelashes01": 368,
-      "hair_black.hair_black": 2248,
-      "vneck_teal.vneck_teal": 555,
-      "jeans_mid.tightjeans": 1175,
-      "shoes_tan.shoes04": 719,
-      "skin.skin_f2": 5576
-     }
+     "triangles": 7000,
+     "materials": 1
     }
    }
   },
   "scooter": {
-   "triangles": 41644,
-   "materials": 20,
-   "by_material": {
-    "scooter_paint": 16000,
-    "seat_leather": 1800,
-    "seat_side": 20,
-    "rubber": 2948,
-    "lamp_glass": 124,
-    "chrome": 2296,
-    "mirror": 184,
-    "dark_metal": 396,
-    "tail_glass": 76,
-    "alu": 248,
-    "rider_tee_jeans.rider_suit": 3224,
-    "sneakers_white.shoes05": 1071,
-    "skin.skin_m": 8559,
-    "eyes_brown.brown_eye": 172,
-    "brows.brows_eyebrow010": 192,
-    "lashes.lashes_Eyelashes01": 368,
-    "hair_dark.hair_dark": 1050,
-    "helmet_red": 472,
-    "helmet_white": 768,
-    "helmet_black": 1676
-   },
-   "bytes": 1203740,
-   "anchors": {
-    "eyes": [
-     0.0293,
-     1.5625,
-     0.1029
-    ],
-    "head": [
-     0.0,
-     1.5272,
-     0.0186
-    ]
+   "triangles": 30092,
+   "materials": 11,
+   "bytes": 861920,
+   "eye": [
+    0.0,
+    1.5916,
+    0.1001
+   ],
+   "rider": {
+    "triangles": 5965,
+    "materials": 1
    }
   },
   "bicycle": {
@@ -150,222 +63,38 @@
    }
   },
   "dispatcher": {
-   "bytes": 7906
+   "bytes": 8020
+  },
+  "cars": {
+   "car": {
+    "triangles": 21656,
+    "materials": 15,
+    "bytes": 610088
+   },
+   "parked": {
+    "triangles": 18397,
+    "materials": 4,
+    "bytes": 588472,
+    "each": {
+     "parked_hatch_root": {
+      "triangles": 4597,
+      "materials": 4
+     },
+     "parked_sedan_root": {
+      "triangles": 4598,
+      "materials": 4
+     },
+     "parked_suv_root": {
+      "triangles": 4597,
+      "materials": 4
+     },
+     "parked_pickup_root": {
+      "triangles": 4597,
+      "materials": 4
+     }
+    }
+   }
   }
  },
- "sources": {
-  "scooter": [
-   [
-    "clothes/male_casualsuit06",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni, Jonas Hauquier"
-   ],
-   [
-    "clothes/shoes05",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Jonas Hauquier"
-   ],
-   [
-    "eyebrows/eyebrow010",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyelashes/Eyelashes01",
-    "AGPL3 (see also http://www.makehuman.org/node/320)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyes/Low-Poly",
-    "AGPL3 (http://www.makehuman.org/doc/node/makehuman_mesh_license.html)",
-    "Thomas Larsson"
-   ],
-   [
-    "hair/short04",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ]
-  ],
-  "bicycle": [
-   [
-    "clothes/male_casualsuit06",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni, Jonas Hauquier"
-   ],
-   [
-    "clothes/shoes05",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Jonas Hauquier"
-   ],
-   [
-    "eyebrows/eyebrow010",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyelashes/Eyelashes01",
-    "AGPL3 (see also http://www.makehuman.org/node/320)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyes/Low-Poly",
-    "AGPL3 (http://www.makehuman.org/doc/node/makehuman_mesh_license.html)",
-    "Thomas Larsson"
-   ],
-   [
-    "hair/short04",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ]
-  ],
-  "dispatcher": [
-   [
-    "clothes/Harvey_VestV1",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Unknown"
-   ],
-   [
-    "clothes/male_casualsuit06",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni, Jonas Hauquier"
-   ],
-   [
-    "eyebrows/eyebrow001",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyelashes/Eyelashes01",
-    "AGPL3 (see also http://www.makehuman.org/node/320)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyes/Low-Poly",
-    "AGPL3 (http://www.makehuman.org/doc/node/makehuman_mesh_license.html)",
-    "Thomas Larsson"
-   ],
-   [
-    "hair/Moustache",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "grinsegold"
-   ]
-  ],
-  "people": [
-   [
-    "clothes/Tank_Top_01",
-    "CC BY 4.0",
-    "Mindfront (Sweden)"
-   ],
-   [
-    "clothes/Tightjeans",
-    "CC BY 3.0 (see also https://creativecommons.org/licenses/by/3.0/)",
-    "punkduck"
-   ],
-   [
-    "clothes/VNeckTop",
-    "CC BY 3.0",
-    "punkduck"
-   ],
-   [
-    "clothes/female_casualsuit01",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni, Jonas Hauquier"
-   ],
-   [
-    "clothes/female_casualsuit02",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "clothes/male_casualsuit05",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni, Jonas Hauquier"
-   ],
-   [
-    "clothes/male_worksuit01",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "clothes/shoes01",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Jonas Hauquier"
-   ],
-   [
-    "clothes/shoes02",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Jonas Hauquier"
-   ],
-   [
-    "clothes/shoes03",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "clothes/shoes04",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Jonas Hauquier"
-   ],
-   [
-    "clothes/shoes06",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Jonas Hauquier"
-   ],
-   [
-    "eyebrows/eyebrow001",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyebrows/eyebrow010",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyelashes/Eyelashes01",
-    "AGPL3 (see also http://www.makehuman.org/node/320)",
-    "Manuel Bastioni"
-   ],
-   [
-    "eyes/Low-Poly",
-    "AGPL3 (http://www.makehuman.org/doc/node/makehuman_mesh_license.html)",
-    "Thomas Larsson"
-   ],
-   [
-    "hair/Moustache",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "grinsegold"
-   ],
-   [
-    "hair/bob02",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "hair/long01",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "hair/ponytail01",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ],
-   [
-    "hair/short01",
-    "AGPL3 (see also http://www.makehuman.org/node/320)",
-    "Manuel Bastioni"
-   ],
-   [
-    "hair/short02",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Jonas Hauquier, Manuel Bastioni"
-   ],
-   [
-    "hair/short04",
-    "AGPL3 (see also http://www.makehuman.org/doc/node/external_tools_license.html)",
-    "Manuel Bastioni"
-   ]
-  ]
- }
+ "note": "All models are original work generated by tools/models."
 }

@@ -368,13 +368,13 @@ export class MerchantView {
 
 /** Who hands over or receives the order at a business. */
 export function roleFor(m: Merchant | null, kind: 'pickup' | 'dropoff', seed = 0): PersonId {
-  if (kind === 'dropoff' || !m) return (['woman_casual', 'jacket_man', 'cap_man'] as const)[Math.abs(seed) % 3]!;
+  if (kind === 'dropoff' || !m) return (['woman_coat', 'young_man', 'kurdish_man'] as const)[Math.abs(seed) % 3]!;
   if (m.building_type === 'factory' || m.building_type === 'warehouse') return 'worker';
-  if (m.building_type === 'office') return 'jacket_man';
+  if (m.building_type === 'office') return 'young_man';
   const name = `${m.name_en} ${m.name_ar}`.toLowerCase();
   if (name.includes('pizza') || name.includes('بيتزا')) return 'pizza_carrier';
   if (m.building_type === 'restaurant' || m.category?.slug === 'restaurants') return 'staff';
-  return 'woman_casual';
+  return 'woman_coat';
 }
 
 /** Floating exclamation mark over the person waiting with an order. */

@@ -1,4 +1,4 @@
-// Detailed 3D models (scooter, bicycle, riders and people) built offline with
+// Detailed 3D models (scooter, bicycle, cars, riders and people) built offline with
 // tools/models and shipped as GLB files in /models. Loading starts as soon as
 // this module is imported; the game falls back to the procedural models in
 // models.ts when a file is missing or the network is too slow.
@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-export type ModelFile = 'scooter' | 'bicycle' | 'people';
+export type ModelFile = 'scooter' | 'bicycle' | 'people' | 'car' | 'parked';
 
 const scenes: Partial<Record<ModelFile, THREE.Object3D>> = {};
 let pending: Promise<void> | null = null;
@@ -37,7 +37,7 @@ function prepare(root: THREE.Object3D) {
 export function loadModels(timeoutMs = 25000): Promise<void> {
   if (pending) return pending;
   const loader = new GLTFLoader();
-  const files: ModelFile[] = ['scooter', 'bicycle', 'people'];
+  const files: ModelFile[] = ['scooter', 'bicycle', 'people', 'car', 'parked'];
   const all = Promise.all(
     files.map((f) =>
       loader
@@ -68,7 +68,7 @@ export function cloneNode(f: ModelFile, name: string): THREE.Object3D | null {
   return copy;
 }
 
-export const PEOPLE = ['staff', 'pizza_carrier', 'cap_man', 'jacket_man', 'worker', 'woman_casual'] as const;
+export const PEOPLE = ['staff', 'pizza_carrier', 'kurdish_man', 'young_man', 'woman_coat', 'worker'] as const;
 export type PersonId = (typeof PEOPLE)[number];
 
 /** A standing person, origin at their feet, facing +z. */

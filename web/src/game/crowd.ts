@@ -12,7 +12,7 @@ import type { MerchantFrame } from './merchants';
 
 export const CROWD_SIZE = { low: 0, medium: 7, high: 14 } as const;
 
-const PASSERS: PersonId[] = ['jacket_man', 'woman_casual', 'cap_man'];
+const PASSERS: PersonId[] = ['young_man', 'woman_coat', 'kurdish_man'];
 
 function hash(n: number) {
   let x = (n * 2654435761) >>> 0;

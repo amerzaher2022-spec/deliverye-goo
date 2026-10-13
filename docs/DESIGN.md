@@ -51,3 +51,25 @@ The second-pass vehicles and capsule-limbed people were still too crude next to 
 | Manager with shemagh and high-visibility vest | Dispatcher portrait in the dispatch dialog |
 
 People are static poses: there is no walking animation. Pedestrians have small collision boxes, so riders steer around them, as in the reference ("avoid them").
+
+## Vehicles and people (fourth pass: original, made for this app)
+
+The MakeHuman-based people were replaced by an original cast built from this project's own skeleton and anatomy (`tools/models`). No third-party data is used anywhere (see [CREDITS](CREDITS.md)).
+
+- **Courier:** charcoal polo with an amber yoke and the app badge, amber open-face helmet with a charcoal stripe, insulated amber backpack printed "توصيل أربيل / ERBIL DELIVERY". Seated on the scooter or the bicycle, hands wrapped around the grips.
+- **Townspeople:**
+  - restaurant staff in a headscarf and apron with foil trays
+  - pizza runner in a red polo and cap
+  - older man in Kurdish *shal u shapik* with a striped sash and *jamana*
+  - young man in a hoodie
+  - woman in a long coat and headscarf
+  - factory worker in a high-visibility vest and hard hat
+- **Dispatcher portrait:** Kak Hama in the branded polo with a headset.
+- **Cars:**
+  - The player's courier hatchback is white with a charcoal roof, an amber shoulder stripe and «عالم توصيل أربيل» on the front doors.
+  - Streets get saloons, large 4×4s and double-cab pickups, the cars most common in Erbil, in realistic colours.
+- **Roads:**
+  - worn asphalt with wheel tracks, cracks, tar seals, patches and chipped paint
+  - paver pavements
+  - concrete jersey barriers with yellow-and-black bands along the Sixty Meter median
+  - planters with shrubs

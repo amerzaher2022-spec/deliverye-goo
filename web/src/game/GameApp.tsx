@@ -769,9 +769,7 @@ export default function GameApp() {
           </p>
           <p className="small muted">{world && pick(world.district.attribution, world.district.attribution)}</p>
           <p className="small faint">
-            {lang === 'ar'
-              ? 'الشخصيات ثلاثية الأبعاد مبنية من بيانات MakeHuman المفتوحة. قميص بلا أكمام: Mindfront (CC BY 4.0). الجينز والقميص بفتحة V: punkduck (CC BY 3.0).'
-              : '3D people built from the open MakeHuman data set. Tank top by Mindfront (CC BY 4.0); jeans and V-neck top by punkduck (CC BY 3.0).'}
+            {lang === 'ar' ? 'جميع الشخصيات والمركبات ثلاثية الأبعاد مصممة خصيصاً لعالم توصيل أربيل.' : 'All 3D characters and vehicles were designed for Erbil Delivery World.'}
           </p>
         </Sheet>
       )}

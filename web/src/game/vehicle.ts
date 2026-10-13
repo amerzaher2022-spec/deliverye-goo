@@ -9,7 +9,32 @@ import { cloneNode, hasModel } from './assets';
 import { buildBicycle, buildCar, buildScooter, type VehicleModel } from './models';
 
 /** Rider eye positions measured on the generated models (tools/models/build_models.py). */
-const EYE = { scooter: new THREE.Vector3(0, 1.565, 0.1), bicycle: new THREE.Vector3(0, 1.755, 0.01) };
+const EYE = { scooter: new THREE.Vector3(0, 1.592, 0.1), bicycle: new THREE.Vector3(0, 1.783, -0.077) };
+
+/** The courier hatchback: body plus four wheels; front wheels steer. */
+function detailedCar(): VehicleModel | null {
+  if (!hasModel('car')) return null;
+  const body = cloneNode('car', 'car_body');
+  if (!body) return null;
+  const root = new THREE.Group();
+  const lean = new THREE.Group();
+  root.add(lean);
+  lean.add(body);
+  const wheels: THREE.Object3D[] = [];
+  const steer: THREE.Object3D[] = [];
+  for (const n of ['hatch_wheel_fl', 'hatch_wheel_fr', 'hatch_wheel_rl', 'hatch_wheel_rr']) {
+    const w = cloneNode('car', n);
+    if (!w) return null;
+    const pivot = new THREE.Group();
+    pivot.position.copy(w.position);
+    w.position.set(0, 0, 0);
+    pivot.add(w);
+    lean.add(pivot);
+    wheels.push(w);
+    if (n.includes('_f')) steer.push(pivot);
+  }
+  return { root, wheels, steer, lean, rider: null, steerScale: 0.8 };
+}
 
 function detailed(file: 'scooter' | 'bicycle'): VehicleModel | null {
   if (!hasModel(file)) return null;
@@ -70,7 +95,7 @@ export class Vehicle {
   constructor(readonly id: VehicleId) {
     this.spec = VEHICLE_SPECS[id];
     const model: VehicleModel =
-      id === 'car' ? buildCar() : id === 'motorcycle' ? (detailed('scooter') ?? buildScooter()) : (detailed('bicycle') ?? buildBicycle());
+      id === 'car' ? (detailedCar() ?? buildCar()) : id === 'motorcycle' ? (detailed('scooter') ?? buildScooter()) : (detailed('bicycle') ?? buildBicycle());
     this.object.add(model.root);
     this.lean = model.lean;
     this.wheels = model.wheels;

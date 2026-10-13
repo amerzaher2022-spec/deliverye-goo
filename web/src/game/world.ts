@@ -10,8 +10,9 @@ import { toLocal, type LocalPoint } from '../../../shared/geo';
 import { distanceToRoadEdge, type RoadGraph } from '../../../shared/roads';
 import type { DistrictData } from '../../../shared/types';
 import { BoxGrid, boxesOverlap, pointInPolygon, type Box } from './collision';
+import { cloneNode, hasModel } from './assets';
 import { parkedCarGeometries } from './models';
-import { facadeTexture, groundTexture, roadTexture, sidewalkTexture, type FacadeStyle } from './textures';
+import { barrierTexture, facadeTexture, groundTexture, roadTexture, sidewalkTexture, type FacadeStyle } from './textures';
 
 export type Quality = 'low' | 'medium' | 'high';
 
@@ -28,7 +29,7 @@ function rng(seed: number) {
   };
 }
 
-export function ribbon(points: LocalPoint[], width: number, y: number, tile: number) {
+export function ribbon(points: LocalPoint[], width: number, y: number, tile: number, uTile = 0) {
   const pos: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
@@ -47,7 +48,8 @@ export function ribbon(points: LocalPoint[], width: number, y: number, tile: num
     if (i > 0) along += Math.hypot(p.x - prev.x, p.y - prev.y);
     const h = width / 2;
     pos.push(p.x + nx * h, y, -(p.y + ny * h), p.x - nx * h, y, -(p.y - ny * h));
-    uv.push(0, along / tile, 1, along / tile);
+    const u1 = uTile ? width / uTile : 1;
+    uv.push(0, along / tile, u1, along / tile);
     if (i > 0) {
       const a = (i - 1) * 2;
       idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
@@ -60,6 +62,61 @@ export function ribbon(points: LocalPoint[], width: number, y: number, tile: num
   g.computeVertexNormals();
   return g;
 }
+
+/** Extrude a cross-section (x across, y up) along a polyline; u runs around the profile, v along (metres / tile). */
+export function extrude(points: LocalPoint[], profile: [number, number][], offset: number, tile: number) {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const lens = profile.map((p, i) => (i ? Math.hypot(p[0] - profile[i - 1]![0], p[1] - profile[i - 1]![1]) : 0));
+  const total = lens.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  const us = lens.map((l) => (acc += l) / total);
+  let along = 0;
+  const m = profile.length;
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i]!;
+    const prev = points[i - 1] ?? p;
+    const next = points[i + 1] ?? p;
+    let tx = next.x - prev.x;
+    let ty = next.y - prev.y;
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl;
+    ty /= tl;
+    const nx = -ty;
+    const ny = tx;
+    if (i > 0) along += Math.hypot(p.x - prev.x, p.y - prev.y);
+    for (let k = 0; k < m; k++) {
+      const [px, py] = profile[k]!;
+      const o = offset + px;
+      pos.push(p.x + nx * o, py, -(p.y + ny * o));
+      uv.push(us[k]!, along / tile);
+    }
+    if (i > 0) {
+      const a = (i - 1) * m;
+      const b = i * m;
+      for (let k = 0; k < m - 1; k++) idx.push(a + k, b + k, a + k + 1, a + k + 1, b + k, b + k + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+type ParkedKind = 'hatch' | 'sedan' | 'suv' | 'pickup';
+const PARKED_KINDS: ParkedKind[] = ['hatch', 'sedan', 'suv', 'pickup'];
+/** half lengths for the collision boxes */
+const PARKED_LEN: Record<ParkedKind, number> = { hatch: 2.08, sedan: 2.45, suv: 2.5, pickup: 2.68 };
+function pickKind(r: number) {
+  return r < 0.28 ? 0 : r < 0.62 ? 1 : r < 0.84 ? 2 : 3;
+}
+
+const JERSEY: [number, number][] = [
+  [-0.3, 0], [-0.3, 0.08], [-0.13, 0.25], [-0.08, 0.81], [0.08, 0.81], [0.13, 0.25], [0.3, 0.08], [0.3, 0],
+];
 
 /**
  * Material for flat, horizontal surfaces. Their lighting is uniform anyway, so
@@ -149,6 +206,8 @@ export class World {
   private propMeshes: THREE.InstancedMesh[] = [];
   private propOwners: PropOwner[] = [];
   private parkedMeshes: THREE.InstancedMesh[] = [];
+  private parkedKindOf: ParkedKind[] = [];
+  private parkedKinds: ParkedKind[] = [];
   private parkedMatrices: THREE.Matrix4[] = [];
   private hidden = new Set<GenericBuilding>();
 
@@ -216,14 +275,17 @@ export class World {
 
   private buildRoads() {
     const q = this.opts.quality;
-    const walkMat = q === 'high' ? surfaceMaterial('high', { map: sidewalkTexture() }) : surfaceMaterial(q, { color: '#c2bcb0' });
+    const walkMat = q === 'low' ? surfaceMaterial(q, { color: '#c2bcb0' }) : surfaceMaterial(q, { map: sidewalkTexture() });
+    const barrierGeos: THREE.BufferGeometry[] = [];
+    const planterAt: { x: number; y: number; a: number }[] = [];
+    const junc = this.junctions();
     const mats = new Map<string, THREE.Material>();
     const sideGeos: THREE.BufferGeometry[] = [];
     const curbGeos: THREE.BufferGeometry[] = [];
     const medianGeos: THREE.BufferGeometry[] = [];
     const medianTop: THREE.BufferGeometry[] = [];
     for (const { road, points } of this.graph.polylines) {
-      sideGeos.push(ribbon(points, road.width + 9, 0.05, 4));
+      sideGeos.push(ribbon(points, road.width + 9, 0.05, 2.4, 2.4));
       curbGeos.push(ribbon(points, road.width + 0.7, 0.06, 4));
       let mat = mats.get(road.kind);
       if (!mat) {
@@ -236,12 +298,50 @@ export class World {
       if (road.kind === 'arterial') {
         medianGeos.push(ribbon(points, 3.4, 0.24, 4));
         medianTop.push(ribbon(points, 2.6, 0.26, 4));
+        if (q !== 'low') {
+          // concrete jersey barriers on both edges of the median, planters with shrubs between them
+          for (const side of [1.25, -1.25]) barrierGeos.push(extrude(points, JERSEY.map(([x, y]) => [x * 0.8, y + 0.24]), side, 2.0));
+          const segs = this.segs(points);
+          const total = segs.reduce((acc, x) => acc + x.len, 0);
+          for (let d = 12; d < total - 12; d += 26) {
+            const { p, t } = this.pointAt(segs, d);
+            if (junc.some((j) => Math.hypot(j.x - p.x, j.y - p.y) < 28)) continue;
+            planterAt.push({ x: p.x, y: p.y, a: Math.atan2(t.x, t.y) });
+          }
+        }
       }
     }
     this.addMerged(sideGeos, walkMat);
     this.addMerged(curbGeos, surfaceMaterial(q, { color: '#d9d5cc' }));
     this.addMerged(medianGeos, surfaceMaterial(q, { color: '#cfcac0' }));
     this.addMerged(medianTop, surfaceMaterial(q, { color: '#76805a' }));
+    if (barrierGeos.length) {
+      const m = new THREE.Mesh(mergeGeometries(barrierGeos), new THREE.MeshLambertMaterial({ map: barrierTexture() }));
+      m.castShadow = q === 'high';
+      m.receiveShadow = true;
+      this.group.add(m);
+    }
+    if (planterAt.length) {
+      const box = new THREE.BoxGeometry(1.1, 0.55, 2.2);
+      box.translate(0, 0.24 + 0.275, 0);
+      const bush = new THREE.IcosahedronGeometry(0.75, 1);
+      const bp = bush.attributes.position!;
+      for (let i = 0; i < bp.count; i++) {
+        const k = 0.8 + 0.35 * Math.abs(Math.sin(i * 12.9898) * 43758.5453 % 1);
+        bp.setXYZ(i, bp.getX(i) * k * 0.8, bp.getY(i) * k * 0.6, bp.getZ(i) * k * 1.6);
+      }
+      bush.computeVertexNormals();
+      bush.translate(0, 0.24 + 0.55 + 0.32, 0);
+      const pm = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ color: '#b9b4aa' }), planterAt.length);
+      const bm = new THREE.InstancedMesh(bush, new THREE.MeshLambertMaterial({ color: '#4f6b32', flatShading: true }), planterAt.length);
+      planterAt.forEach((p, i) => {
+        const mtx = new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, -p.y), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.a), new THREE.Vector3(1, 1, 1));
+        pm.setMatrixAt(i, mtx);
+        bm.setMatrixAt(i, mtx);
+      });
+      pm.castShadow = bm.castShadow = q === 'high';
+      this.group.add(pm, bm);
+    }
 
     // plain asphalt over junctions hides crossing lane markings; zebras on each approach
     const discs: THREE.BufferGeometry[] = [];
@@ -479,7 +579,10 @@ export class World {
       if (blocked === (p.enabled === false)) return;
       changed = true;
       p.enabled = !blocked;
-      for (const pm of this.parkedMeshes) pm.setMatrixAt(idx, blocked ? zero : this.parkedMatrices[idx]!);
+      this.parkedMeshes.forEach((pm, k) => {
+        const own = !this.parkedKindOf.length || this.parkedKinds[idx] === this.parkedKindOf[k];
+        pm.setMatrixAt(idx, blocked || !own ? zero : this.parkedMatrices[idx]!);
+      });
     });
     if (changed) {
       for (const mesh of [...this.instanced, ...this.propMeshes, ...this.parkedMeshes]) mesh.instanceMatrix.needsUpdate = true;
@@ -567,9 +670,10 @@ export class World {
     const rand = rng(4242);
     const keep = this.opts.keepClear ?? [];
     const junctions = this.junctions();
-    const colors = ['#e9e8e4', '#c9ccd0', '#e9e8e4', '#24262a', '#8d9196', '#e9e8e4', '#2d3b4f', '#5b1f22', '#d8d4c8'];
+    const colors = ['#ecebe7', '#c3c7cc', '#ecebe7', '#1f2124', '#8a8f95', '#ecebe7', '#28364d', '#6a1d22', '#d6cfbf', '#ecebe7'];
     const mats: THREE.Matrix4[] = [];
     const cols: THREE.Color[] = [];
+    const kinds: ParkedKind[] = [];
     for (const { road, points } of this.graph.polylines) {
       if (road.kind === 'arterial') continue;
       const segs = this.segs(points);
@@ -585,19 +689,27 @@ export class World {
           const ny = t.x * side;
           const at = { x: p.x + nx * (road.width / 2 - 1.15), y: p.y + ny * (road.width / 2 - 1.15) };
           if (keep.some((k) => Math.hypot(k.x - at.x, k.y - at.y) < 16)) continue;
-          if (this.opts.reserved.some((r) => boxesOverlap(r, { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: 2.1, hd: 0.9 }, 3))) continue;
+          // fewer parked cars at medium quality (phones)
+          if (this.opts.quality === 'medium' && rand() < 0.4) continue;
+          const kind = PARKED_KINDS[pickKind(rand())]!;
+          const hw = PARKED_LEN[kind];
+          if (this.opts.reserved.some((r) => boxesOverlap(r, { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: hw + 0.05, hd: 0.9 }, 3))) continue;
           // drive on the right: cars face the direction of travel on their side
           const heading = Math.atan2(t.x * -side, t.y * -side);
           const m = new THREE.Matrix4().compose(v3(at), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI - heading), new THREE.Vector3(1, 1, 1));
-          const box: Box = { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: 2.05, hd: 0.9, id: `p${mats.length}` };
+          const box: Box = { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw, hd: 0.95, id: `p${mats.length}` };
           this.parked.push(box);
           this.grid.add(box);
           mats.push(m);
+          kinds.push(kind);
+          s += hw * 2 - 4.1;
           cols.push(new THREE.Color(colors[Math.floor(rand() * colors.length)]!));
         }
       }
     }
     if (!mats.length) return;
+    this.parkedMatrices = mats;
+    if (hasModel('parked') && this.buildParkedModels(mats, cols, kinds)) return;
     const [bodyGeo, darkGeo] = parkedCarGeometries();
     const body = new THREE.InstancedMesh(bodyGeo, new THREE.MeshStandardMaterial({ color: '#ffffff', metalness: 0.4, roughness: 0.35 }), mats.length);
     const dark = new THREE.InstancedMesh(darkGeo, new THREE.MeshStandardMaterial({ color: '#1c1e21', metalness: 0.5, roughness: 0.4 }), mats.length);
@@ -608,7 +720,49 @@ export class World {
     });
     body.castShadow = dark.castShadow = this.opts.quality === 'high';
     this.parkedMeshes = [body, dark];
-    this.parkedMatrices = mats;
     this.group.add(body, dark);
+  }
+
+  /**
+   * Detailed parked cars (hatchback, saloon, SUV, pickup) as instanced meshes: one per car type and material.
+   * The paint material is white so each instance takes its own colour. The hidden-car logic needs one mesh
+   * list covering every slot, so every type's meshes get all slots and hide the slots of other types.
+   */
+  private buildParkedModels(mats: THREE.Matrix4[], cols: THREE.Color[], kinds: ParkedKind[]) {
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    const meshes: THREE.InstancedMesh[] = [];
+    const typeOf: ParkedKind[] = [];
+    for (const kind of PARKED_KINDS) {
+      const node = cloneNode('parked', `parked_${kind}`);
+      if (!node) return false;
+      node.updateMatrixWorld(true);
+      node.traverse((o) => {
+        const src = o as THREE.Mesh;
+        if (!src.isMesh) return;
+        let mat = src.material as THREE.MeshStandardMaterial;
+        const paint = mat.name === 'car_paint' || mat.name === 'car_roof';
+        if (paint) {
+          mat = mat.clone();
+          mat.color.set('#ffffff');
+        }
+        const geo = src.geometry.clone().applyMatrix4(src.matrixWorld);
+        const im = new THREE.InstancedMesh(geo, mat, mats.length);
+        mats.forEach((m, i) => {
+          im.setMatrixAt(i, kinds[i] === kind ? m : zero);
+          if (paint) im.setColorAt(i, cols[i]!);
+        });
+        im.castShadow = this.opts.quality === 'high';
+        im.receiveShadow = true;
+        meshes.push(im);
+        typeOf.push(kind);
+        this.group.add(im);
+      });
+    }
+    this.parkedMeshes = meshes;
+    // per-mesh matrices so hiding and showing a slot restores the right car
+    this.parkedMatrices = mats;
+    this.parkedKindOf = typeOf;
+    this.parkedKinds = kinds;
+    return true;
   }
 }

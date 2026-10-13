@@ -34,7 +34,7 @@ browser ──HTTPS──> Fastify (server/)
 | `web/src/game/assets.ts` | Loads the generated GLB models (scooter, bicycle, riders, people) once; clones share geometry and materials |
 | `web/src/game/crowd.ts` | Pedestrians outside businesses, merged into one mesh per material, each with a small collision box |
 | `web/src/game/models.ts` | Car, procedural fallbacks for the scooter, bicycle and people; `bakeStatic` merges static parts per material |
-| `tools/models/*.py` | Offline model generator (Blender as a Python module): vehicles modelled in code, people from the MakeHuman data set, see [CREDITS](CREDITS.md) |
+| `tools/models/*.py` | Offline model generator (Blender as a Python module): original people (own anatomy and sculpting), vehicles and cars modelled in code, see [CREDITS](CREDITS.md) |
 | `web/src/signPainter.ts` | Paints the storefront sign; shared by the game and the dashboard preview |
 | `web/src/admin/*` | Dashboard (map manager, editor, missions, packages, sponsorships, analytics) |
 
@@ -48,4 +48,4 @@ Every admin write bumps `app_state.world_version`. Clients poll `/api/world/vers
 
 ## Rendering budget
 
-Static meshes are merged per material (a storefront costs about 10 draw calls instead of about 60). Buildings, roof props, palms, lamps and parked cars are instanced. Flat ground surfaces use unlit materials below "high" quality. The generated models total about 4.9 MB (WebP textures). They load in parallel with the world data and are cached by the service worker. A rider is about 17k triangles, a pedestrian 10–14k. The pavement crowd is 0 / 7 / 14 people at low / medium / high quality and costs about 25 draw calls. If the frame rate stays under 24 fps the game steps down from high to medium to low, unless the player has picked a quality level by hand.
+Static meshes are merged per material (a storefront costs about 10 draw calls instead of about 60). Buildings, roof props, palms, lamps and parked cars are instanced. Flat ground surfaces use unlit materials below "high" quality. The generated models total about 7 MB (WebP textures). They load in parallel with the world data and are cached by the service worker. A rider is about 12k triangles, a pedestrian 7–9k, a street car 4.6k. The pavement crowd is 0 / 7 / 14 people at low / medium / high quality and costs about 25 draw calls. If the frame rate stays under 24 fps the game steps down from high to medium to low, unless the player has picked a quality level by hand.

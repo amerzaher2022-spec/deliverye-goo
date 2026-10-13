@@ -57,41 +57,176 @@ function noise(ctx: CanvasRenderingContext2D, w: number, h: number, alpha: numbe
   }
 }
 
-/** Asphalt with lane markings; v runs along the road. One tile = road width × 1.2 width. */
-export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local') {
-  const W = 512;
-  const [c, ctx] = canvas(W, W);
-  ctx.fillStyle = kind === 'local' ? '#46474a' : '#3b3c3f';
-  ctx.fillRect(0, 0, W, W);
-  noise(ctx, W, W, 0.18, 9000, kind.length);
-  // faint tyre tracks
-  ctx.fillStyle = 'rgba(0,0,0,0.06)';
-  const lanes = kind === 'arterial' ? 6 : kind === 'primary' ? 4 : 2;
-  for (let i = 0; i < lanes; i++) {
-    const x = (W / lanes) * (i + 0.3);
-    ctx.fillRect(x, 0, W / lanes / 8, W);
-    ctx.fillRect(x + W / lanes / 2.6, 0, W / lanes / 8, W);
+/** Seeded random generator for repeatable textures. */
+function rng(seed: number) {
+  let s = seed % 2147483647 || 1;
+  return () => ((s = (s * 16807) % 2147483647) / 2147483647);
+}
+
+/** Wandering crack line. */
+function crack(ctx: CanvasRenderingContext2D, r: () => number, x: number, y: number, len: number, width: number, color: string) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  let a = r() * Math.PI * 2;
+  for (let i = 0; i < len; i += 6) {
+    a += (r() - 0.5) * 0.9;
+    x += Math.cos(a) * 6;
+    y += Math.sin(a) * 6;
+    ctx.lineTo(x, y);
   }
-  const paint = 'rgba(238,236,228,0.88)';
-  const line = (x: number, w: number, color = paint, dash?: [number, number]) => {
-    ctx.fillStyle = color;
-    if (!dash) ctx.fillRect(x - w / 2, 0, w, W);
-    else for (let y = 0; y < W; y += dash[0] + dash[1]) ctx.fillRect(x - w / 2, y, w, dash[0]);
+  ctx.stroke();
+}
+
+/**
+ * Worn asphalt with lane markings; v runs along the road. One tile = road width × 1.2 width.
+ * Layers: mottled base, aggregate grain, polished wheel tracks, tar-sealed cracks, patches, oil stains,
+ * and paint that is chipped and faded where tyres run.
+ */
+export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local') {
+  const W = 1024;
+  const [c, ctx] = canvas(W, W);
+  const r = rng(kind.length * 977 + 13);
+  ctx.fillStyle = kind === 'local' ? '#5a5b5d' : '#535457';
+  ctx.fillRect(0, 0, W, W);
+  // large soft mottling (wraps vertically so the tile repeats cleanly)
+  for (let i = 0; i < 70; i++) {
+    const x = r() * W;
+    const y = r() * W;
+    const rad = 40 + r() * 160;
+    const light = r() < 0.5;
+    for (const yy of [y - W, y, y + W]) {
+      const g = ctx.createRadialGradient(x, yy, 0, x, yy, rad);
+      g.addColorStop(0, light ? 'rgba(150,150,148,0.10)' : 'rgba(20,20,22,0.12)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - rad, yy - rad, rad * 2, rad * 2);
+    }
+  }
+  // aggregate grain
+  noise(ctx, W, W, 0.22, 60000, kind.length);
+  for (let i = 0; i < 9000; i++) {
+    ctx.fillStyle = `rgba(${r() < 0.5 ? '200,198,192' : '15,15,16'},${0.08 + r() * 0.12})`;
+    ctx.fillRect(r() * W, r() * W, 1, 1);
+  }
+  const lanes = kind === 'arterial' ? 6 : kind === 'primary' ? 4 : 2;
+  const laneW = W / lanes;
+  // polished, darker wheel tracks
+  for (let i = 0; i < lanes; i++) {
+    for (const off of [0.28, 0.72]) {
+      const x = laneW * (i + off);
+      const g = ctx.createLinearGradient(x - 26, 0, x + 26, 0);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(0.5, 'rgba(25,25,28,0.16)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - 26, 0, 52, W);
+    }
+    // oil stains in the middle of the lane
+    for (let k = 0; k < 3; k++) {
+      const x = laneW * (i + 0.5) + (r() - 0.5) * 20;
+      const y = r() * W;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 18 + r() * 22);
+      g.addColorStop(0, 'rgba(10,10,12,0.22)');
+      g.addColorStop(1, 'rgba(10,10,12,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x - 40, y - 40, 80, 80);
+    }
+  }
+  // repair patches
+  for (let i = 0; i < 4; i++) {
+    const w = 60 + r() * 140;
+    const h = 50 + r() * 180;
+    const x = r() * (W - w);
+    const y = r() * (W - h);
+    ctx.fillStyle = r() < 0.5 ? 'rgba(40,40,43,0.35)' : 'rgba(120,120,118,0.18)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(18,18,20,0.5)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, w, h);
+  }
+  // cracks and tar seal
+  for (let i = 0; i < 14; i++) crack(ctx, r, r() * W, r() * W, 80 + r() * 260, 1 + r() * 1.5, 'rgba(15,15,17,0.55)');
+  for (let i = 0; i < 6; i++) crack(ctx, r, r() * W, r() * W, 120 + r() * 300, 5 + r() * 4, 'rgba(22,22,24,0.45)');
+  // longitudinal seam where two paving passes meet
+  ctx.fillStyle = 'rgba(20,20,22,0.35)';
+  ctx.fillRect(W / 2 - 2 + (kind === 'arterial' ? 0 : laneW * 0.02), 0, 3, W);
+
+  // paint: chipped where wheels run over it
+  const paint = (x: number, w: number, color: string, dash?: [number, number]) => {
+    const seg = (y0: number, len: number) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(x - w / 2, y0, w, len);
+      for (let k = 0; k < len * w * 0.06; k++) {
+        ctx.fillStyle = `rgba(80,80,82,${0.3 + r() * 0.5})`;
+        ctx.fillRect(x - w / 2 + r() * w, y0 + r() * len, 1 + r() * 3, 1 + r() * 3);
+      }
+    };
+    if (!dash) seg(0, W);
+    else for (let y = 0; y < W; y += dash[0] + dash[1]) seg(y, dash[0]);
   };
-  line(14, 6);
-  line(W - 14, 6);
+  const white = 'rgba(236,234,226,0.9)';
+  const yellow = 'rgba(222,178,52,0.9)';
+  paint(26, 10, white);
+  paint(W - 26, 10, white);
   if (kind === 'arterial') {
     // centre is covered by the raised median; three lanes each way
-    for (const x of [W * 0.155, W * 0.31, W * 0.69, W * 0.845]) line(x, 5, paint, [96, 160]);
-    line(W * 0.43, 5);
-    line(W * 0.57, 5);
+    for (const x of [W * 0.155, W * 0.31, W * 0.69, W * 0.845]) paint(x, 9, white, [190, 320]);
+    paint(W * 0.43, 9, yellow);
+    paint(W * 0.57, 9, yellow);
   } else if (kind === 'primary') {
-    line(W / 2 - 6, 4, 'rgba(226,182,60,0.9)');
-    line(W / 2 + 6, 4, 'rgba(226,182,60,0.9)');
-    for (const x of [W * 0.26, W * 0.74]) line(x, 5, paint, [96, 160]);
+    paint(W / 2 - 11, 7, yellow);
+    paint(W / 2 + 11, 7, yellow);
+    for (const x of [W * 0.26, W * 0.74]) paint(x, 9, white, [190, 320]);
   } else {
-    line(W / 2, 5, paint, [80, 176]);
+    paint(W / 2, 9, white, [160, 350]);
   }
+  // gutter darkening along both edges
+  for (const x0 of [0, W - 22]) {
+    const g = ctx.createLinearGradient(x0, 0, x0 + 22, 0);
+    g.addColorStop(x0 === 0 ? 0 : 1, 'rgba(10,10,12,0.4)');
+    g.addColorStop(x0 === 0 ? 1 : 0, 'rgba(10,10,12,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, 0, 22, W);
+  }
+  return toTexture(c, { repeat: true, anisotropy: 8 });
+}
+
+/** Concrete jersey barrier: grey concrete with a yellow-and-black band near the top. u across the profile, v along. */
+export function barrierTexture() {
+  const [c, ctx] = canvas(256, 256);
+  ctx.fillStyle = '#a9a6a0';
+  ctx.fillRect(0, 0, 256, 256);
+  noise(ctx, 256, 256, 0.18, 9000, 31);
+  const r = rng(77);
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = `rgba(60,58,54,${0.05 + r() * 0.08})`;
+    ctx.fillRect(r() * 256, r() * 256, 2 + r() * 20, 2 + r() * 6);
+  }
+  // band covers u 0.62..0.86 on both faces (profile is symmetric: 0..0.5 one side, 0.5..1 the other)
+  for (const [u0, u1] of [[0.3, 0.42], [0.58, 0.7]] as const) {
+    for (let v = -256; v < 512; v += 64) {
+      ctx.fillStyle = '#e2b52a';
+      ctx.beginPath();
+      ctx.moveTo(u0 * 256, v);
+      ctx.lineTo(u1 * 256, v + 40);
+      ctx.lineTo(u1 * 256, v + 72);
+      ctx.lineTo(u0 * 256, v + 32);
+      ctx.fill();
+      ctx.fillStyle = '#1d1d1f';
+      ctx.beginPath();
+      ctx.moveTo(u0 * 256, v + 32);
+      ctx.lineTo(u1 * 256, v + 72);
+      ctx.lineTo(u1 * 256, v + 104);
+      ctx.lineTo(u0 * 256, v + 64);
+      ctx.fill();
+    }
+  }
+  // joint between barrier segments
+  ctx.fillStyle = 'rgba(30,30,30,0.6)';
+  ctx.fillRect(0, 0, 256, 4);
   return toTexture(c, { repeat: true, anisotropy: 4 });
 }
 
@@ -104,19 +239,26 @@ export function groundTexture(color: string, seed: number) {
 }
 
 export function sidewalkTexture() {
-  const [c, ctx] = canvas(128, 128);
-  ctx.fillStyle = '#c4beb2';
-  ctx.fillRect(0, 0, 128, 128);
-  noise(ctx, 128, 128, 0.1, 1500, 7);
-  ctx.strokeStyle = 'rgba(70,62,52,0.28)';
-  ctx.lineWidth = 1.5;
-  for (let i = 0; i <= 128; i += 32) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, 128);
-    ctx.moveTo(0, i);
-    ctx.lineTo(128, i);
-    ctx.stroke();
+  const [c, ctx] = canvas(256, 256);
+  ctx.fillStyle = '#c9c3b6';
+  ctx.fillRect(0, 0, 256, 256);
+  const r = rng(5);
+  // 30 × 30 cm pavers, each a slightly different tone, in a running bond
+  for (let y = 0; y < 256; y += 32) {
+    const off = (y / 32) % 2 ? 16 : 0;
+    for (let x = -32; x < 256; x += 32) {
+      const t = 188 + Math.floor(r() * 26);
+      ctx.fillStyle = `rgb(${t},${t - 5},${t - 15})`;
+      ctx.fillRect(x + off + 1, y + 1, 30, 30);
+    }
+  }
+  noise(ctx, 256, 256, 0.12, 6000, 7);
+  for (let i = 0; i < 18; i++) {
+    const g = ctx.createRadialGradient(r() * 256, r() * 256, 0, r() * 256, r() * 256, 30);
+    g.addColorStop(0, 'rgba(90,80,66,0.12)');
+    g.addColorStop(1, 'rgba(90,80,66,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 256);
   }
   return toTexture(c, { repeat: true });
 }
