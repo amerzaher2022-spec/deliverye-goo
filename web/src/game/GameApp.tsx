@@ -91,6 +91,7 @@ export default function GameApp() {
   const [menuVehicle, setMenuVehicle] = useState<VehicleId>('motorcycle');
   const [now, setNow] = useState(Date.now());
   const [portrait, setPortrait] = useState(false);
+  const [showRotate, setShowRotate] = useState(true);
   const versionRef = useRef(0);
   const worldRef = useRef<WorldPayload | null>(null);
   worldRef.current = world;
@@ -344,6 +345,8 @@ export default function GameApp() {
 
   const startPlaying = () => {
     setScreen('play');
+    setShowRotate(true);
+    setTimeout(() => setShowRotate(false), 7000);
     setOverlay({ kind: 'none' });
     // "View in game" from the dashboard: /?focus=<merchant id>
     const focus = Number(new URLSearchParams(location.search).get('focus'));
@@ -633,7 +636,7 @@ export default function GameApp() {
           </div>
 
           <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} />
-          {portrait && (
+          {portrait && showRotate && (
             <div className="panel rotate-hint">
               <Icon name="reset" size={14} /> {t('rotateHint')}
             </div>

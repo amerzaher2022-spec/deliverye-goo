@@ -984,6 +984,10 @@
   .dialog {
     bottom: calc(146px + var(--safe-b));
   }
+  .rotate-hint {
+    bottom: auto;
+    top: calc(286px + var(--safe-t));
+  }
   .pad.steer {
     width: 66px;
     height: 66px;
