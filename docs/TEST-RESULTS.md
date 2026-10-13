@@ -1,6 +1,6 @@
 # Test results
 
-Last run on 2026-10-13 (after the third-pass 3D models) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
+Last run on 2026-10-13 (after the fourth pass: original cast, cars and roads) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
 
 | Check | Command | Result |
 |---|---|---|
@@ -77,6 +77,20 @@ Checked after replacing the scooter, bicycle, riders and people:
   - shared materials that mixed up skin and hair textures
 
 ![Generated models](img-models.jpg)
+
+## Fourth pass (original cast, cars, roads)
+
+- typecheck, the 29 API tests, the build and the 4 browser tests pass (results above are from this run)
+- The first browser run failed: the English-interface test timed out because the menu took about 96 s to load at medium quality. The cause was the parked cars. Each car type was instanced over every parking slot, with the other types' slots scaled to zero, so the scene drew about 1.4 million triangles. Parked cars are now instanced per type and per 160 m map cell, so each car is drawn once and off-screen streets are skipped.
+- Menu load and frame time in the test browser (software GPU, 1366×820), before and after the fix:
+
+| Quality | Before: load | Before: 2 frames | After: load | After: 2 frames | Previous release: load | Previous release: 2 frames |
+|---|---|---|---|---|---|---|
+| low | 9 s | 0.5 s | 10 s | 0.5 s | not measured | not measured |
+| medium | 96 s | 8 s | 14 s | 1.3 s | 14 s | 1.4 s |
+| high | over 150 s (menu never appeared) | not measured | 26 s | 2.9 s | not measured | not measured |
+
+  These timings come from a CPU renderer, so they only show relative cost, not real-device frame rate.
 
 ## Not tested
 

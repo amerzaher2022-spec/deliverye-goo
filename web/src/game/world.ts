@@ -206,8 +206,8 @@ export class World {
   private propMeshes: THREE.InstancedMesh[] = [];
   private propOwners: PropOwner[] = [];
   private parkedMeshes: THREE.InstancedMesh[] = [];
-  private parkedKindOf: ParkedKind[] = [];
-  private parkedKinds: ParkedKind[] = [];
+  /** where each parked slot is drawn: the meshes holding it and its instance index in them */
+  private parkedSlots: { meshes: THREE.InstancedMesh[]; i: number }[] = [];
   private parkedMatrices: THREE.Matrix4[] = [];
   private hidden = new Set<GenericBuilding>();
 
@@ -579,10 +579,8 @@ export class World {
       if (blocked === (p.enabled === false)) return;
       changed = true;
       p.enabled = !blocked;
-      this.parkedMeshes.forEach((pm, k) => {
-        const own = !this.parkedKindOf.length || this.parkedKinds[idx] === this.parkedKindOf[k];
-        pm.setMatrixAt(idx, blocked || !own ? zero : this.parkedMatrices[idx]!);
-      });
+      const slot = this.parkedSlots[idx]!;
+      for (const pm of slot.meshes) pm.setMatrixAt(slot.i, blocked ? zero : this.parkedMatrices[idx]!);
     });
     if (changed) {
       for (const mesh of [...this.instanced, ...this.propMeshes, ...this.parkedMeshes]) mesh.instanceMatrix.needsUpdate = true;
@@ -720,22 +718,22 @@ export class World {
     });
     body.castShadow = dark.castShadow = this.opts.quality === 'high';
     this.parkedMeshes = [body, dark];
+    this.parkedSlots = mats.map((_, i) => ({ meshes: this.parkedMeshes, i }));
     this.group.add(body, dark);
   }
 
   /**
-   * Detailed parked cars (hatchback, saloon, SUV, pickup) as instanced meshes: one per car type and material.
-   * The paint material is white so each instance takes its own colour. The hidden-car logic needs one mesh
-   * list covering every slot, so every type's meshes get all slots and hide the slots of other types.
+   * Detailed parked cars (hatchback, saloon, SUV, pickup) as instanced meshes, one per car type, material
+   * and map cell. Splitting by cell lets the camera skip whole streets of cars that are off screen. The
+   * paint material is white so each instance takes its own colour.
    */
   private buildParkedModels(mats: THREE.Matrix4[], cols: THREE.Color[], kinds: ParkedKind[]) {
-    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    const meshes: THREE.InstancedMesh[] = [];
-    const typeOf: ParkedKind[] = [];
+    const sources = new Map<ParkedKind, { geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial; paint: boolean }[]>();
     for (const kind of PARKED_KINDS) {
       const node = cloneNode('parked', `parked_${kind}`);
       if (!node) return false;
       node.updateMatrixWorld(true);
+      const list: { geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial; paint: boolean }[] = [];
       node.traverse((o) => {
         const src = o as THREE.Mesh;
         if (!src.isMesh) return;
@@ -745,24 +743,43 @@ export class World {
           mat = mat.clone();
           mat.color.set('#ffffff');
         }
-        const geo = src.geometry.clone().applyMatrix4(src.matrixWorld);
-        const im = new THREE.InstancedMesh(geo, mat, mats.length);
-        mats.forEach((m, i) => {
-          im.setMatrixAt(i, kinds[i] === kind ? m : zero);
-          if (paint) im.setColorAt(i, cols[i]!);
+        list.push({ geo: src.geometry.clone().applyMatrix4(src.matrixWorld), mat, paint });
+      });
+      sources.set(kind, list);
+    }
+    const CELL = 160;
+    const cells = new Map<string, number[]>();
+    const at = new THREE.Vector3();
+    mats.forEach((m, i) => {
+      at.setFromMatrixPosition(m);
+      const key = `${kinds[i]}:${Math.floor(at.x / CELL)}:${Math.floor(at.z / CELL)}`;
+      const list = cells.get(key) ?? [];
+      list.push(i);
+      cells.set(key, list);
+    });
+    const meshes: THREE.InstancedMesh[] = [];
+    const slots: { meshes: THREE.InstancedMesh[]; i: number }[] = [];
+    for (const [key, idx] of cells) {
+      const kind = key.split(':')[0] as ParkedKind;
+      const cellMeshes: THREE.InstancedMesh[] = [];
+      for (const { geo, mat, paint } of sources.get(kind)!) {
+        const im = new THREE.InstancedMesh(geo, mat, idx.length);
+        idx.forEach((slot, k) => {
+          im.setMatrixAt(k, mats[slot]!);
+          if (paint) im.setColorAt(k, cols[slot]!);
         });
+        im.computeBoundingSphere();
         im.castShadow = this.opts.quality === 'high';
         im.receiveShadow = true;
-        meshes.push(im);
-        typeOf.push(kind);
+        cellMeshes.push(im);
         this.group.add(im);
-      });
+      }
+      idx.forEach((slot, k) => (slots[slot] = { meshes: cellMeshes, i: k }));
+      meshes.push(...cellMeshes);
     }
     this.parkedMeshes = meshes;
-    // per-mesh matrices so hiding and showing a slot restores the right car
+    this.parkedSlots = slots;
     this.parkedMatrices = mats;
-    this.parkedKindOf = typeOf;
-    this.parkedKinds = kinds;
     return true;
   }
 }
