@@ -10,7 +10,7 @@ import { buildBicycle, buildCar, buildScooter, type VehicleModel } from './model
 import { CAR_EYE, carDash, handlebarDash, type Dash } from './cockpit';
 
 /** Rider eye positions measured on the generated models (tools/models/build_models.py). */
-const EYE = { scooter: new THREE.Vector3(0, 1.592, 0.1), bicycle: new THREE.Vector3(0, 1.783, -0.077) };
+const EYE = { scooter: new THREE.Vector3(0, 1.579, 0.05), bicycle: new THREE.Vector3(0, 1.783, -0.077) };
 
 /** The courier hatchback: body plus four wheels; front wheels steer. */
 function detailedCar(): VehicleModel | null {

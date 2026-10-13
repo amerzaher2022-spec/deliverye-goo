@@ -32,16 +32,16 @@
    }
   },
   "scooter": {
-   "triangles": 30092,
+   "triangles": 36092,
    "materials": 11,
-   "bytes": 861920,
+   "bytes": 1151336,
    "eye": [
     0.0,
-    1.5916,
-    0.1001
+    1.579,
+    0.0499
    ],
    "rider": {
-    "triangles": 5965,
+    "triangles": 11968,
     "materials": 1
    }
   },
@@ -67,15 +67,15 @@
   },
   "cars": {
    "car": {
-    "triangles": 21656,
+    "triangles": 22644,
     "materials": 15,
-    "bytes": 608552
+    "bytes": 635340
    },
    "parked": {
     "triangles": 12799,
     "materials": 1,
-    "bytes": 651552,
-    "atlas_bytes": 563234,
+    "bytes": 656608,
+    "atlas_bytes": 593018,
     "each": {
      "parked_hatch": {
       "triangles": 3200,

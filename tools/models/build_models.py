@@ -42,8 +42,9 @@ def q(full, fast):
 def scooter_pose(sk, b):
     V = vh.SCOOTER
     fx, fy, fz = V['floor']
-    st.seated(sk, b, seat=(0, 0.795 + 0.1, -0.1), grip=V['grip'],
-              ankles=[(fx, fy + 0.075, fz + 0.03), (-fx, fy + 0.075, fz + 0.03)], lean=20)
+    # sitting back on the seat, leaning into the bars, feet forward on the floorboard
+    st.seated(sk, b, seat=(0, 0.795 + 0.1, -0.19), grip=V['grip'],
+              ankles=[(fx + 0.02, fy + 0.075, fz + 0.12), (-fx - 0.02, fy + 0.075, fz + 0.12)], lean=26)
 
 
 def bicycle_pose(sk, b):
