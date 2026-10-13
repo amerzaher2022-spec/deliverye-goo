@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",

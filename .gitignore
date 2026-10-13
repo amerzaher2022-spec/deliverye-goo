@@ -8,3 +8,4 @@ playwright-report
 coverage
 *.log
 .DS_Store
+.dev
