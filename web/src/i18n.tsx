@@ -22,6 +22,7 @@ const STRINGS = {
   controls: { ar: 'طريقة التحكم', en: 'Controls' },
   controlButtons: { ar: 'أزرار', en: 'Buttons' },
   controlJoystick: { ar: 'عصا تحكم', en: 'Joystick' },
+  controlWheel: { ar: 'مقود', en: 'Wheel' },
   close: { ar: 'إغلاق', en: 'Close' },
   cancel: { ar: 'إلغاء', en: 'Cancel' },
   save: { ar: 'حفظ', en: 'Save' },

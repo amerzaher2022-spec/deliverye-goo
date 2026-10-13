@@ -431,6 +431,27 @@
   width: 76px;
   height: 76px;
 }
+.wheelpad {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(14, 15, 17, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  user-select: none;
+}
+.wheelpad.on {
+  border-color: var(--amber-hi);
+}
+.wheelpad svg {
+  width: 112px;
+  height: 112px;
+  pointer-events: none;
+}
 .joy {
   width: 148px;
   height: 148px;

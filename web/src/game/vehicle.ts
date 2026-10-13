@@ -7,6 +7,7 @@ import { VEHICLE_SPECS, type VehicleSpec } from '../../../shared/rules';
 import type { VehicleId } from '../../../shared/types';
 import { cloneNode, hasModel } from './assets';
 import { buildBicycle, buildCar, buildScooter, type VehicleModel } from './models';
+import { CAR_EYE, carDash, handlebarDash, type Dash } from './cockpit';
 
 /** Rider eye positions measured on the generated models (tools/models/build_models.py). */
 const EYE = { scooter: new THREE.Vector3(0, 1.592, 0.1), bicycle: new THREE.Vector3(0, 1.783, -0.077) };
@@ -33,7 +34,7 @@ function detailedCar(): VehicleModel | null {
     wheels.push(w);
     if (n.includes('_f')) steer.push(pivot);
   }
-  return { root, wheels, steer, lean, rider: null, steerScale: 0.8 };
+  return { root, wheels, steer, lean, rider: null, steerScale: 0.8, eye: CAR_EYE };
 }
 
 function detailed(file: 'scooter' | 'bicycle'): VehicleModel | null {
@@ -91,6 +92,8 @@ export class Vehicle {
   readonly riderHead: THREE.Object3D | null;
   readonly eye: THREE.Vector3 | null;
   private steerScale: number;
+  /** speedometer (and the car's steering wheel), seen from the driver's seat */
+  private dash: Dash | null = null;
 
   constructor(readonly id: VehicleId) {
     this.spec = VEHICLE_SPECS[id];
@@ -104,6 +107,10 @@ export class Vehicle {
     this.riderHead = model.riderHead ?? null;
     this.eye = model.eye ?? null;
     this.steerScale = model.steerScale ?? 1;
+    if (this.eye) {
+      this.dash = id === 'car' ? carDash() : handlebarDash(id === 'motorcycle' ? 'scooter' : 'bicycle', this.eye);
+      this.lean.add(this.dash.group);
+    }
   }
 
   /** Advance the physics. `surfaceGrip` < 1 when off the road. */
@@ -138,6 +145,11 @@ export class Vehicle {
     // smooth steering animation instead of snapping the wheels
     this.steerVisual += (-input.steer * 0.42 * this.steerScale - this.steerVisual) * Math.min(1, dt * 10);
     for (const w of this.frontWheels) w.rotation.y = this.steerVisual;
+    if (this.dash) {
+      this.dash.speedo.set(this.speed * 3.6);
+      // a car's steering wheel turns about 2.5 times as far as its road wheels' visual angle
+      if (this.dash.wheel) this.dash.wheel.rotation.z = (-this.steerVisual / (0.42 * this.steerScale)) * 1.6;
+    }
     if (this.id !== 'car') this.lean.rotation.z += (this.yawRate * sp * 0.05 - this.lean.rotation.z) * Math.min(1, dt * 6);
   }
 

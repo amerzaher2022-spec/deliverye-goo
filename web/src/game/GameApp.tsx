@@ -9,7 +9,7 @@ import { Coin, Icon } from '../icons';
 import '../styles/game.css';
 import { useI18n } from '../i18n';
 import { loadModels } from './assets';
-import { TouchControls } from './Controls';
+import { TouchControls, type ControlMode } from './Controls';
 import { Engine, type CameraMode, type HudState } from './engine';
 import { FullMap, Minimap } from './Minimap';
 import { DirectoryPanel, InteriorPickup, ManagerDialog, MerchantCard, MissionBoard, PackagesPanel, ProgressPanel, ResultScreen, Sheet, type DeliveryResult } from './panels';
@@ -30,15 +30,22 @@ interface Settings {
   quality: Quality;
   /** false once the player picks a quality by hand */
   autoQuality: boolean;
-  controls: 'buttons' | 'joystick';
+  controls: ControlMode;
   camera: CameraMode;
 }
 
 function loadSettings(): Settings {
   const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-  const def: Settings = { quality: coarse ? 'medium' : 'high', autoQuality: true, controls: 'buttons', camera: 'chase' };
+  const def: Settings = { quality: coarse ? 'medium' : 'high', autoQuality: true, controls: coarse ? 'wheel' : 'buttons', camera: 'rider' };
   try {
-    return { ...def, ...JSON.parse(localStorage.getItem('dg.settings') ?? '{}') };
+    const saved = { ...def, ...JSON.parse(localStorage.getItem('dg.settings') ?? '{}') } as Settings;
+    // once: move existing players to the driver's-seat view and the steering wheel
+    if (localStorage.getItem('dg.view2') !== '1') {
+      localStorage.setItem('dg.view2', '1');
+      saved.camera = 'rider';
+      if (coarse) saved.controls = 'wheel';
+    }
+    return saved;
   } catch {
     return def;
   }
@@ -636,7 +643,7 @@ export default function GameApp() {
             <span>{lang === 'ar' ? 'كم/س' : 'KM/H'}</span>
           </div>
 
-          <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} />
+          <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} car={player?.vehicle === 'car'} />
           {portrait && showRotate && (
             <div className="panel rotate-hint">
               <Icon name="reset" size={14} /> {t('rotateHint')}
@@ -754,6 +761,9 @@ export default function GameApp() {
             </button>
             <button className={settings.controls === 'joystick' ? 'on' : ''} onClick={() => setSettings({ controls: 'joystick' })}>
               {t('controlJoystick')}
+            </button>
+            <button className={settings.controls === 'wheel' ? 'on' : ''} onClick={() => setSettings({ controls: 'wheel' })}>
+              {t('controlWheel')}
             </button>
           </div>
           <h3>{t('camera')}</h3>

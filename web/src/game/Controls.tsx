@@ -95,7 +95,65 @@ function Joystick({ input }: { input: DriveInput }) {
   );
 }
 
-export function TouchControls({ input, mode }: { input: DriveInput; mode: 'buttons' | 'joystick' }) {
+/** Turn-to-steer wheel (or handlebar): drag around the centre; it springs back when released. */
+function SteerWheel({ input, car }: { input: DriveInput; car: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [turn, setTurn] = useState(0);
+  const active = useRef<{ id: number; start: number; base: number } | null>(null);
+  const MAX = 110;
+  const angleOf = (e: RPointerEvent) => {
+    const r = ref.current!.getBoundingClientRect();
+    return (Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180) / Math.PI;
+  };
+  const move = (e: RPointerEvent) => {
+    const a = active.current;
+    if (!a || a.id !== e.pointerId) return;
+    let d = angleOf(e) - a.start;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    const t = Math.max(-MAX, Math.min(MAX, a.base + d));
+    setTurn(t);
+    input.steer = Math.abs(t) < 6 ? 0 : t / MAX;
+  };
+  const release = () => {
+    active.current = null;
+    setTurn(0);
+    input.steer = 0;
+  };
+  return (
+    <div
+      ref={ref}
+      className={`wheelpad ${active.current ? 'on' : ''}`}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        active.current = { id: e.pointerId, start: angleOf(e), base: turn };
+      }}
+      onPointerMove={move}
+      onPointerUp={release}
+      onPointerCancel={release}
+    >
+      <svg viewBox="0 0 100 100" style={{ transform: `rotate(${turn}deg)`, transition: active.current ? 'none' : 'transform 0.18s ease-out' }}>
+        {car ? (
+          <g fill="none" stroke="rgba(243,239,232,0.92)" strokeLinecap="round">
+            <circle cx="50" cy="50" r="38" strokeWidth="8" />
+            <circle cx="50" cy="50" r="9" strokeWidth="6" />
+            <path d="M12 52 H41 M59 52 H88 M50 59 V88" strokeWidth="7" />
+          </g>
+        ) : (
+          <g fill="none" stroke="rgba(243,239,232,0.92)" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 46 Q20 38 34 48 L50 50 L66 48 Q80 38 92 46" strokeWidth="7" />
+            <path d="M8 46 L4 54 M92 46 L96 54" strokeWidth="9" />
+            <circle cx="50" cy="56" r="7" strokeWidth="5" />
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+export type ControlMode = 'buttons' | 'joystick' | 'wheel';
+
+export function TouchControls({ input, mode, car }: { input: DriveInput; mode: ControlMode; car: boolean }) {
   const { lang } = useI18n();
   const steer = useRef({ left: false, right: false });
   const applySteer = () => {
@@ -106,6 +164,8 @@ export function TouchControls({ input, mode }: { input: DriveInput; mode: 'butto
       <div className="ctrl left" dir="ltr">
         {mode === 'joystick' ? (
           <Joystick input={input} />
+        ) : mode === 'wheel' ? (
+          <SteerWheel input={input} car={car} />
         ) : (
           <>
             <HoldPad

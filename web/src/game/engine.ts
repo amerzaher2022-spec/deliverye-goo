@@ -505,13 +505,14 @@ export class Engine {
   /** First-person view hides the rider's head (detailed models) or the whole rider (procedural ones). */
   private showRider(firstPerson: boolean) {
     const v = this.vehicle;
-    if (!v.rider) return;
-    if (v.riderHead) {
-      v.rider.visible = true;
-      v.riderHead.visible = !firstPerson;
-    } else v.rider.visible = !firstPerson;
+    if (v.rider) {
+      if (v.riderHead) {
+        v.rider.visible = true;
+        v.riderHead.visible = !firstPerson;
+      } else v.rider.visible = !firstPerson;
+    }
     const near = firstPerson && v.eye ? 0.06 : 0.5;
-    const fov = this.baseFov + (firstPerson && v.eye ? 24 : 0);
+    const fov = this.baseFov + (firstPerson && v.eye ? (v.id === 'car' ? 16 : 24) : 0);
     if (this.camera.near !== near || this.camera.fov !== fov) {
       this.camera.near = near;
       this.camera.fov = fov;
@@ -576,19 +577,25 @@ export class Engine {
       up = car ? 1.25 : 1.78;
       ahead = 20;
       if (v.eye) {
-        // from the rider's eyes, looking a little down so the hands and handlebar sit at the bottom of the view
-        back = 0.1 - v.eye.z;
-        up = v.eye.y + 0.08;
-        ahead = 6;
-        drop = 2.25;
+        // from the driver's eyes, looking a little down so the hands and handlebar (or the dashboard and
+        // steering wheel) sit at the bottom of the view
+        back = car ? -v.eye.z : 0.1 - v.eye.z;
+        up = v.eye.y + (car ? 0 : 0.08);
+        ahead = car ? 12 : 6;
+        drop = car ? 1.0 : 2.25;
       }
     }
-    const want = new THREE.Vector3(v.x - fx * back, up, -(v.y - fy * back));
-    const look = new THREE.Vector3(v.x + fx * ahead, this.cameraMode === 'rider' ? up - drop : 1.4, -(v.y + fy * ahead));
+    // the car's driver sits on the left: shift the eye sideways (x is the vehicle's left)
+    const side = this.cameraMode === 'rider' && v.eye ? v.eye.x : 0;
+    const lx = -fy * side;
+    const ly = fx * side;
+    const want = new THREE.Vector3(v.x - fx * back + lx, up, -(v.y - fy * back + ly));
+    const look = new THREE.Vector3(v.x + fx * ahead + lx, this.cameraMode === 'rider' ? up - drop : 1.4, -(v.y + fy * ahead + ly));
     const k = snap ? 1 : 1 - Math.exp(-dt * (this.cameraMode === 'rider' ? 20 : 6));
     this.camPos.lerp(want, k);
     this.camLook.lerp(look, k);
-    if (snap) {
+    // the driver's eye is fixed to the vehicle: no smoothing, or the camera would trail behind the seat at speed
+    if (snap || this.cameraMode === 'rider') {
       this.camPos.copy(want);
       this.camLook.copy(look);
     }
