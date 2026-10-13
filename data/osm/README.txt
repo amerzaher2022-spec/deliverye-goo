@@ -1,0 +1,1 @@
+Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright. Fetched 2026-10-13 with .github/workflows/osm-fetch.yml (9 of 9 street tiles).
