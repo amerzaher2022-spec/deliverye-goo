@@ -1,7 +1,8 @@
 # Downloads OpenStreetMap data for central Erbil (© OpenStreetMap contributors, ODbL) through the
 # Overpass API and commits the raw extract to data/osm/. The game's district is then built from it
-# with scripts/build-district.mjs. Run it from the Actions tab ("Run workflow"); it also runs once
-# when this file changes.
+# with scripts/build-district.mjs. Run it from the Actions tab ("Run workflow"); it also runs when
+# this file changes. The city is fetched in 3 x 3 tiles (one job each, the public servers are slow)
+# plus one query for named places.
 name: Fetch OpenStreetMap data
 
 on:
@@ -14,62 +15,67 @@ permissions:
   contents: write
 
 jobs:
-  fetch:
+  tile:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        part: [t0, t1, t2, t3, t4, t5, t6, t7, t8, places]
     steps:
-      - uses: actions/checkout@v4
       - name: Query Overpass
         run: |
-          mkdir -p data/osm
-          fetch() { # fetch QUERY_FILE OUT_FILE
-            for attempt in 1 2 3 4; do
-              for url in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter; do
-                if curl -sS --fail -m 300 -A "erbil-delivery-world/0.1 (github actions)" --data-urlencode "data@$1" "$url" -o "$2"; then
-                  echo "$2 from $url: $(wc -c < "$2") bytes"; return 0
-                fi
-                sleep 15
-              done
-            done
-            return 1
-          }
-          # the city inside and around the 60 Meter ring road, in 3 x 3 tiles: roads (with tunnel, bridge,
-          # lanes and name tags) and named places
           S=36.150; N=36.230; W=43.950; E=44.065
-          i=0
-          for r in 0 1 2; do for c in 0 1 2; do
+          part=${{ matrix.part }}
+          if [ "$part" = places ]; then
+            B="$S,$W,$N,$E"
+            q="[out:json][timeout:240];(nwr[\"name\"][\"amenity\"]($B);nwr[\"name\"][\"shop\"]($B);nwr[\"name\"][\"tourism\"]($B);nwr[\"name\"][\"office\"]($B);nwr[\"name\"][\"leisure\"]($B);nwr[\"name\"][\"building\"]($B);nwr[\"name\"][\"landuse\"=\"residential\"]($B);nwr[\"name\"][\"place\"]($B););out center tags;"
+          else
+            i=${part#t}; r=$((i / 3)); c=$((i % 3))
             s=$(echo "$S + ($N - $S) * $r / 3" | bc -l); n=$(echo "$S + ($N - $S) * ($r + 1) / 3" | bc -l)
             w=$(echo "$W + ($E - $W) * $c / 3" | bc -l); e=$(echo "$W + ($E - $W) * ($c + 1) / 3" | bc -l)
-            printf '[out:json][timeout:180];way["highway"~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|service|pedestrian)$"](%.5f,%.5f,%.5f,%.5f);out geom tags;' $s $w $n $e > /tmp/streets_$i.ql
-            fetch /tmp/streets_$i.ql /tmp/streets_$i.json
-            i=$((i + 1))
-            sleep 5
-          done; done
-          jq -s '{elements: (map(.elements) | add | unique_by(.id))}' /tmp/streets_*.json > data/osm/streets.json
-          echo "streets: $(jq '.elements | length' data/osm/streets.json) ways"
-          BBOX="$S,$W,$N,$E"
-          cat > /tmp/places.ql <<QL
-          [out:json][timeout:180];
-          (
-            nwr["name"]["amenity"](${BBOX});
-            nwr["name"]["shop"](${BBOX});
-            nwr["name"]["tourism"](${BBOX});
-            nwr["name"]["office"](${BBOX});
-            nwr["name"]["leisure"](${BBOX});
-            nwr["name"]["building"](${BBOX});
-            nwr["name"]["landuse"="residential"](${BBOX});
-            nwr["name"]["place"](${BBOX});
-          );
-          out center tags;
-          QL
-          fetch /tmp/places.ql data/osm/places.json
-          gzip -9f data/osm/streets.json data/osm/places.json
-          ls -la data/osm
-      - name: Commit
+            q=$(printf '[out:json][timeout:240];way["highway"~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|unclassified|residential|living_street|service|pedestrian)$"](%.5f,%.5f,%.5f,%.5f);out geom tags;' $s $w $n $e)
+          fi
+          echo "$q" > q.ql
+          for attempt in $(seq 1 12); do
+            for url in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter https://maps.mail.ru/osm/tools/overpass/api/interpreter; do
+              if curl -sS --fail -m 300 -A "erbil-delivery-world/0.1 (github actions)" --data-urlencode "data@q.ql" "$url" -o "$part.json" && jq -e '.elements' "$part.json" > /dev/null; then
+                echo "$part from $url: $(jq '.elements | length' "$part.json") elements"; exit 0
+              fi
+              sleep $((10 + attempt * 5))
+            done
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osm-${{ matrix.part }}
+          path: ${{ matrix.part }}.json
+          retention-days: 3
+
+  commit:
+    needs: tile
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: osm-*
+          path: parts
+          merge-multiple: true
+      - name: Merge and commit
         run: |
-          echo "Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright. Fetched $(date -u +%F) with .github/workflows/osm-fetch.yml." > data/osm/README.txt
+          ls -la parts
+          mkdir -p data/osm
+          jq -s '{elements: (map(.elements) | add | unique_by(.id))}' parts/t*.json > data/osm/streets.json
+          cp parts/places.json data/osm/places.json
+          echo "streets: $(jq '.elements | length' data/osm/streets.json) ways from $(ls parts/t*.json | wc -l) of 9 tiles"
+          gzip -9f data/osm/streets.json data/osm/places.json
+          echo "Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright. Fetched $(date -u +%F) with .github/workflows/osm-fetch.yml ($(ls parts/t*.json | wc -l) of 9 street tiles)." > data/osm/README.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/osm
           git commit -m "OpenStreetMap extract of central Erbil (ODbL)" || echo "no changes"
+          git pull --rebase origin main
           git push
