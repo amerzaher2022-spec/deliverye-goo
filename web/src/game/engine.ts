@@ -117,7 +117,7 @@ export class Engine {
     this.scene.environmentIntensity = 0.55;
     pmrem.dispose();
 
-    this.scene.add(new THREE.HemisphereLight('#dfe8f0', '#8f7d60', 1.05));
+    this.scene.add(new THREE.HemisphereLight('#d4e3f2', '#9a8662', 0.95));
     this.sun.position.set(-150, 160, 110);
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
@@ -150,24 +150,54 @@ export class Engine {
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.sun.castShadow = q.shadows;
-    this.scene.fog = new THREE.Fog('#d9d6cc', q.fog * 0.3, q.fog);
+    // light summer haze, matching the sky at the horizon
+    this.scene.fog = new THREE.Fog('#d8dcdb', q.fog * 0.42, q.fog);
     this.camera.far = q.fog + 50;
     this.camera.updateProjectionMatrix();
   }
 
+  /** Erbil's clear sky: deep blue overhead, pale haze at the horizon, a few soft clouds. */
   private buildSky() {
-    const geo = new THREE.SphereGeometry(1, 24, 12);
-    const top = new THREE.Color('#7fa3c4');
-    const bottom = new THREE.Color('#dedbd1');
-    const colors: number[] = [];
-    const pos = geo.attributes.position!;
-    for (let i = 0; i < pos.count; i++) {
-      const t = Math.max(0, pos.getY(i));
-      const c = bottom.clone().lerp(top, Math.pow(t, 0.45));
-      colors.push(c.r, c.g, c.b);
+    const W = 1024;
+    const H = 512;
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const ctx = c.getContext('2d')!;
+    // equirectangular: v = 0 at the top of the sphere, 0.5 at the horizon
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#2f6fb6');
+    g.addColorStop(0.3, '#5b93cf');
+    g.addColorStop(0.46, '#a9c6e0');
+    g.addColorStop(0.5, '#dfe3e1');
+    g.addColorStop(1, '#d8d3c6');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let k = 0; k < 26; k++) {
+      const cx = rnd() * W;
+      const cy = H * (0.22 + rnd() * 0.24);
+      const n = 6 + Math.floor(rnd() * 8);
+      for (let i = 0; i < n; i++) {
+        const r = 10 + rnd() * 28 * (1 - (cy / H - 0.2));
+        const x = cx + (rnd() - 0.5) * r * 3;
+        const y = cy + (rnd() - 0.5) * r * 0.6;
+        for (const xx of [x - W, x, x + W]) {
+          const rg = ctx.createRadialGradient(xx, y, 0, xx, y, r);
+          rg.addColorStop(0, 'rgba(255,255,255,0.55)');
+          rg.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = rg;
+          ctx.beginPath();
+          ctx.ellipse(xx, y, r, r * 0.55, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    this.sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const geo = new THREE.SphereGeometry(1, 32, 16);
+    this.sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false, toneMapped: false }));
     this.sky.renderOrder = -1;
     this.scene.add(this.sky);
   }

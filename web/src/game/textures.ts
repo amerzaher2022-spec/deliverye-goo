@@ -307,53 +307,111 @@ export function facadeTexture(style: FacadeStyle) {
     return toTexture(c, { repeat: true });
   }
   if (style === 'shopfront') {
-    const [c, ctx] = canvas(128, 128);
-    ctx.fillStyle = '#d8d4cc';
-    ctx.fillRect(0, 0, 128, 128);
-    ctx.fillStyle = '#2d2f31';
-    ctx.fillRect(4, 8, 120, 26); // sign band
-    const g = ctx.createLinearGradient(0, 40, 0, 128);
-    g.addColorStop(0, '#3b4650');
-    g.addColorStop(1, '#5e5246');
+    // one shop unit: sign band, rolled-up shutter box, aluminium-framed glass with a lit interior
+    const [c, ctx] = canvas(256, 256);
+    ctx.fillStyle = '#d9d3c7';
+    ctx.fillRect(0, 0, 256, 256);
+    noise(ctx, 256, 256, 0.05, 800, 9);
+    ctx.fillStyle = '#26282b';
+    ctx.fillRect(6, 14, 244, 52); // sign band
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillRect(6, 14, 244, 8);
+    ctx.fillStyle = '#9a9c9d';
+    ctx.fillRect(12, 70, 232, 14); // shutter box
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    for (let y = 72; y < 84; y += 3) ctx.fillRect(12, y, 232, 1);
+    const g = ctx.createLinearGradient(0, 86, 0, 256);
+    g.addColorStop(0, '#6d6152');
+    g.addColorStop(0.5, '#4a4239');
+    g.addColorStop(1, '#2e2a26');
     ctx.fillStyle = g;
-    ctx.fillRect(8, 40, 112, 88);
-    ctx.fillStyle = '#b8bcbf';
-    ctx.fillRect(8, 40, 112, 3);
-    ctx.fillRect(62, 40, 4, 88);
-    ctx.fillRect(8, 40, 3, 88);
-    ctx.fillRect(117, 40, 3, 88);
-    ctx.fillStyle = 'rgba(255,214,150,0.18)';
-    ctx.fillRect(12, 46, 46, 78);
-    return toTexture(c, { repeat: true });
+    ctx.fillRect(14, 86, 228, 170);
+    // shelves and warm light inside
+    ctx.fillStyle = 'rgba(255,214,150,0.22)';
+    ctx.fillRect(20, 92, 100, 150);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    for (let y = 120; y < 240; y += 34) ctx.fillRect(130, y, 104, 4);
+    // reflection streak
+    const r = ctx.createLinearGradient(14, 86, 140, 256);
+    r.addColorStop(0, 'rgba(200,220,235,0.25)');
+    r.addColorStop(0.4, 'rgba(200,220,235,0)');
+    ctx.fillStyle = r;
+    ctx.fillRect(14, 86, 228, 170);
+    ctx.fillStyle = '#c3c6c8';
+    ctx.fillRect(14, 86, 228, 4);
+    ctx.fillRect(124, 86, 6, 170);
+    ctx.fillRect(14, 86, 5, 170);
+    ctx.fillRect(237, 86, 5, 170);
+    return toTexture(c, { repeat: true, anisotropy: 4 });
   }
-  // plaster: two windows per tile, slab band, occasional AC unit
-  const [c, ctx] = canvas(256, 128);
-  ctx.fillStyle = '#f3efe7';
-  ctx.fillRect(0, 0, 256, 128);
-  noise(ctx, 256, 128, 0.05, 900, 3);
-  ctx.fillStyle = '#ddd5c6';
-  ctx.fillRect(0, 118, 256, 10);
-  for (const [i, x] of [34, 152].entries()) {
-    ctx.fillStyle = '#3a3936';
-    ctx.fillRect(x - 3, 24, 76, 74);
-    const g = ctx.createLinearGradient(x, 26, x + 70, 96);
-    g.addColorStop(0, '#2b3740');
-    g.addColorStop(0.6, '#5a6a75');
-    g.addColorStop(1, '#33404a');
-    ctx.fillStyle = g;
-    ctx.fillRect(x, 27, 70, 68);
-    ctx.fillStyle = '#3a3936';
-    ctx.fillRect(x + 33, 27, 4, 68);
-    ctx.fillStyle = '#e7e1d5';
-    ctx.fillRect(x - 6, 98, 82, 5); // sill
-    if (i === 1) {
-      ctx.fillStyle = '#d9dad7';
-      ctx.fillRect(x + 10, 104, 34, 13); // AC unit
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      for (let k = 0; k < 6; k++) ctx.fillRect(x + 13 + k * 5, 107, 2, 7);
+  // stone-clad residential bays (as on Erbil's newer blocks): two windows per tile with aluminium
+  // frames and sky reflections, a floor band, one bay with a balcony railing and an AC unit
+  const [c, ctx] = canvas(512, 256);
+  const rnd = rng(911);
+  ctx.fillStyle = '#efe8da';
+  ctx.fillRect(0, 0, 512, 256);
+  // limestone blocks, each a little different
+  for (let y = 0; y < 236; y += 30) {
+    const off = (y / 30) % 2 ? 0 : 40;
+    for (let x = -off; x < 512; x += 80) {
+      const l = 228 + Math.floor(rnd() * 16);
+      ctx.fillStyle = `rgb(${l},${l - 7},${l - 20})`;
+      ctx.fillRect(x + 1, y + 1, 78, 28);
     }
   }
-  return toTexture(c, { repeat: true });
+  noise(ctx, 512, 256, 0.05, 2600, 5);
+  ctx.fillStyle = 'rgba(120,105,85,0.35)';
+  for (let y = 0; y < 236; y += 30) ctx.fillRect(0, y, 512, 1);
+  // floor band
+  ctx.fillStyle = '#d8ccb6';
+  ctx.fillRect(0, 236, 512, 20);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fillRect(0, 254, 512, 2);
+  for (const [i, x] of [56, 296].entries()) {
+    const w = 160;
+    // reveal shadow, frame, glass with a sky reflection
+    ctx.fillStyle = '#8e8676';
+    ctx.fillRect(x - 6, 40, w + 12, 160);
+    ctx.fillStyle = '#c9cbcc';
+    ctx.fillRect(x - 3, 43, w + 6, 154);
+    const g = ctx.createLinearGradient(x, 46, x + 40, 196);
+    g.addColorStop(0, '#9fb7cc');
+    g.addColorStop(0.35, '#5f7b92');
+    g.addColorStop(0.36, '#3c4f5e');
+    g.addColorStop(1, '#2c3843');
+    ctx.fillStyle = g;
+    ctx.fillRect(x + 3, 49, w - 6, 142);
+    ctx.fillStyle = '#c9cbcc';
+    ctx.fillRect(x + w / 2 - 3, 49, 6, 142);
+    ctx.fillRect(x + 3, 118, w - 6, 5);
+    // curtains in some panes
+    if (rnd() < 0.7) {
+      ctx.fillStyle = rnd() < 0.5 ? 'rgba(236,226,206,0.55)' : 'rgba(190,170,140,0.5)';
+      ctx.fillRect(x + 6, 52, 30 + rnd() * 30, 64);
+    }
+    // stone sill
+    ctx.fillStyle = '#f6f1e6';
+    ctx.fillRect(x - 10, 200, w + 20, 8);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(x - 10, 208, w + 20, 3);
+    if (i === 1) {
+      // balcony: slab shadow and a dark steel railing across the lower part of the window
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(x - 18, 196, w + 36, 6);
+      ctx.fillStyle = '#2d2f31';
+      ctx.fillRect(x - 18, 140, w + 36, 5);
+      for (let k = 0; k <= 18; k++) ctx.fillRect(x - 16 + k * ((w + 32) / 18), 140, 3, 58);
+    } else {
+      // AC condenser on a bracket under the sill
+      ctx.fillStyle = '#dcdddb';
+      ctx.fillRect(x + 30, 214, 70, 20);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      for (let k = 0; k < 9; k++) ctx.fillRect(x + 34 + k * 7, 218, 3, 12);
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.fillRect(x + 30, 234, 70, 2);
+    }
+  }
+  return toTexture(c, { repeat: true, anisotropy: 4 });
 }
 
 /** Lightbox sign texture; the painting itself lives in signPainter.ts (shared with the dashboard preview). */
