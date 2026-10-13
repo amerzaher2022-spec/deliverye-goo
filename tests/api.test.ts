@@ -68,7 +68,7 @@ describe('public world', () => {
     const w = (await c.get('/api/world')).body;
     const res = await c.get(w.merchants[0].logo_url);
     expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toBe('image/svg+xml');
+    expect(res.headers['content-type']).toBe('image/png');
     expect(String(res.headers['content-security-policy'])).toContain('sandbox');
   });
 });

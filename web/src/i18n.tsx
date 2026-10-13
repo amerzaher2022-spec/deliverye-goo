@@ -99,14 +99,14 @@ const STRINGS = {
   tooFar: { ar: 'اقترب أكثر من النقطة', en: 'Get closer to the point' },
   runInProgress: { ar: 'لديك مهمة جارية', en: 'You already have a delivery in progress' },
   managerName: { ar: 'كاك حمه — مدير التوزيع', en: 'Kak Hama — dispatch manager' },
-  tut1: { ar: 'أهلاً بك يا بطل! أنا كاك حمه، مدير التوزيع. نحن على شارع الستين في أربيل.', en: "Welcome, rider! I'm Kak Hama, the dispatch manager. We're on Sixty Meter Street in Erbil." },
+  tut1: { ar: 'أهلاً بك. معك كاك حمه من قسم التوزيع. منطقة عملك اليوم شارع الستين في أربيل.', en: "Welcome aboard. This is Kak Hama from dispatch. Your zone today is Sixty Meter Street, Erbil." },
   tut2: {
     ar: 'استعمل دواسة الوقود والفرامل على اليمين، والتوجيه على اليسار. على الكمبيوتر: الأسهم أو WASD.',
     en: 'Use the throttle and brake on the right, steering on the left. On a computer: arrow keys or WASD.',
   },
   tut3: {
-    ar: 'افتح لوحة الطلبات واقبل مهمة، ثم اتبع الخط الأزرق للاستلام والتسليم. الطلبات هشة — قُد بحذر!',
-    en: 'Open the job board, accept a mission and follow the blue line to pickup and drop-off. Orders are fragile — drive carefully!',
+    ar: 'افتح لوحة الطلبات واقبل مهمة، ثم اتبع خط المسار للاستلام والتسليم. الطلبات هشة — قُد بحذر!',
+    en: 'Open the job board, accept a mission and follow the route line to pickup and drop-off. Orders are fragile — drive carefully!',
   },
   pickedUp: {
     ar: 'تم استلام الطلبية! اتبع الخط إلى نقطة التسليم.',

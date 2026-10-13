@@ -8,12 +8,13 @@ import { toLocal, type LocalPoint } from '../../../shared/geo';
 import { nearestOnNetwork, type RoadGraph } from '../../../shared/roads';
 import type { BuildingType, DistrictData, Merchant } from '../../../shared/types';
 import type { Box } from './collision';
+import { MAT, bakeStatic, pedestrian } from './models';
 import { v3 } from './world';
-import { facadeTexture, hazardTexture, loadImage, shade, signTexture, stripeTexture } from './textures';
+import { facadeTexture, hazardTexture, loadImage, pinTexture, shade, signTexture, stripeTexture } from './textures';
 
 export const BUILDING_SIZE: Record<BuildingType, { w: number; d: number; h: number }> = {
-  restaurant: { w: 16, d: 14, h: 8 },
-  shop: { w: 18, d: 14, h: 7 },
+  restaurant: { w: 16, d: 14, h: 10.8 },
+  shop: { w: 18, d: 14, h: 10.8 },
   factory: { w: 52, d: 42, h: 13 },
   warehouse: { w: 46, d: 36, h: 11 },
   office: { w: 22, d: 22, h: 46 },
@@ -56,9 +57,7 @@ export function merchantFrame(m: Merchant, district: DistrictData, graph: RoadGr
   };
 }
 
-function lambert(color: string | number, extra: THREE.MeshLambertMaterialParameters = {}) {
-  return new THREE.MeshLambertMaterial({ color, ...extra });
-}
+const lambert = (color: string | number, extra: THREE.MeshLambertMaterialParameters = {}) => new THREE.MeshLambertMaterial({ color, ...extra });
 
 function box(w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0, z = 0) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -68,11 +67,18 @@ function box(w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0,
   return mesh;
 }
 
+/** A facade material tiled to real-world size (bay × storey). */
+function facade(style: 'plaster' | 'glass' | 'industrial' | 'shopfront', w: number, h: number, bay: number, floor: number, tint = '#ffffff') {
+  const t = facadeTexture(style);
+  t.repeat.set(Math.max(1, Math.round(w / bay)), Math.max(1, Math.round(h / floor)));
+  return new THREE.MeshLambertMaterial({ map: t, color: tint });
+}
+
 export class MerchantView {
   readonly group = new THREE.Group();
   readonly frame: MerchantFrame;
   private marker: THREE.Object3D | null = null;
-  private spin: THREE.Object3D | null = null;
+  private pin: THREE.Sprite | null = null;
   private pickupRing: THREE.Mesh;
   private disposed = false;
 
@@ -90,25 +96,17 @@ export class MerchantView {
     body.rotation.y = Math.atan2(f.front.x, -f.front.y);
     this.group.add(body);
     this.buildBody(body);
+    bakeStatic(body);
 
-    // pickup pad on the kerb
-    const ringMat = new THREE.MeshBasicMaterial({ color: merchant.brand_color, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
-    this.pickupRing = new THREE.Mesh(new THREE.RingGeometry(2.2, 3, 32), ringMat);
+    // pickup bay marking on the kerb
+    const ringMat = new THREE.MeshBasicMaterial({ color: '#f3efe8', transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+    this.pickupRing = new THREE.Mesh(new THREE.RingGeometry(2.5, 2.75, 48), ringMat);
     this.pickupRing.rotation.x = -Math.PI / 2;
     this.pickupRing.position.copy(v3(f.pickup, 0.16));
     this.group.add(this.pickupRing);
 
     const benefits = merchant.sponsorship?.benefits;
-    if (benefits?.highlightMarker) {
-      const size = BUILDING_SIZE[merchant.building_type];
-      const gem = new THREE.Mesh(
-        new THREE.OctahedronGeometry(1.6),
-        new THREE.MeshBasicMaterial({ color: '#ffd23f' }),
-      );
-      gem.position.copy(v3(f.centre, size.h + 6));
-      this.spin = gem;
-      this.group.add(gem);
-    }
+    if (benefits?.highlightMarker) this.addPin();
     if (benefits?.loadingZoneBranding || merchant.building_type === 'warehouse' || merchant.building_type === 'factory') {
       this.addLoadingZone(!!benefits?.loadingZoneBranding);
     }
@@ -126,168 +124,193 @@ export class MerchantView {
   private buildBody(g: THREE.Group) {
     const t = this.merchant.building_type;
     const { w, d, h } = BUILDING_SIZE[t];
-    const wall = lambert(t === 'office' ? '#dde6ee' : t === 'factory' || t === 'warehouse' ? '#d9d4c8' : '#efe3cf');
     if (t === 'office') {
-      const tex = facadeTexture('glass');
-      tex.repeat.set(w / 6, h / 4);
-      const facade = new THREE.MeshLambertMaterial({ map: tex });
-      g.add(box(w, h, d, facade, 0, h / 2, 0));
-      g.add(box(w + 0.6, 0.8, d + 0.6, lambert('#7d8a96'), 0, h + 0.4, 0));
-      // lobby canopy
-      g.add(box(10, 0.4, 4, lambert('#2f3b47'), 0, 4.2, d / 2 + 2));
-      g.add(box(8, 3.6, 0.2, lambert('#1d2d3d', { emissive: '#203040' }), 0, 1.8, d / 2 + 0.11));
-      for (const x of [-5.5, 5.5]) g.add(this.flag(x, d / 2 + 6));
+      // stone podium, curtain-wall tower, canopy, flagpoles
+      g.add(box(w + 1, 5, d + 1, facade('plaster', w + 1, 5, 6, 5, '#d8d0c2'), 0, 2.5, 0));
+      g.add(box(w, h - 5, d, facade('glass', w, h - 5, 3, 3.6), 0, 5 + (h - 5) / 2, 0));
+      g.add(box(w + 0.5, 0.9, d + 0.5, lambert('#8f969c'), 0, h + 0.45, 0));
+      g.add(box(10, 0.35, 4.2, MAT.plastic('#2a2d31'), 0, 4.1, d / 2 + 2.6));
+      g.add(box(8, 3.4, 0.15, new THREE.MeshStandardMaterial({ color: '#1a2026', metalness: 0.8, roughness: 0.15 }), 0, 1.7, d / 2 + 0.6));
+      for (const x of [-5.5, 0, 5.5]) g.add(this.flagpole(x, d / 2 + 7));
     } else if (t === 'factory') {
-      g.add(box(w, h, d, wall, 0, h / 2, 0));
-      // saw-tooth roof
-      const tooth = new THREE.CylinderGeometry(0.01, 3.4, w, 3, 1);
+      const clad = facade('industrial', w, h, 8, 40, '#e6e4df');
+      g.add(box(w, h, d, clad, 0, h / 2, 0));
+      // saw-tooth north-light roof
+      const tooth = new THREE.CylinderGeometry(0.01, 3.2, w, 3, 1);
       tooth.rotateZ(Math.PI / 2);
       for (let i = 0; i < 5; i++) {
-        const m = new THREE.Mesh(tooth, lambert('#9aa5ad'));
-        m.position.set(0, h + 1.6, -d / 2 + 4 + i * (d - 8) / 4);
+        const m = new THREE.Mesh(tooth, lambert('#8d969c'));
+        m.position.set(0, h + 1.5, -d / 2 + 4 + (i * (d - 8)) / 4);
         m.castShadow = true;
         g.add(m);
       }
-      const chimney = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, 26, 12), new THREE.MeshLambertMaterial({ map: stripeTexture('#c0392b', '#ecf0f1') }));
-      chimney.position.set(w / 2 - 6, 13, -d / 2 + 6);
+      const chimney = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.4, 24, 14), lambert('#a8a49c'));
+      chimney.position.set(w / 2 - 6, 12, -d / 2 + 6);
       chimney.castShadow = true;
-      g.add(chimney);
-      // office annex and gate
-      g.add(box(14, 6, 8, lambert('#eee6d6'), -w / 2 + 9, 3, d / 2 + 4));
-      g.add(box(1.2, 3, 1.2, lambert('#7f8c8d'), 8, 1.5, d / 2 + 14));
-      g.add(box(1.2, 3, 1.2, lambert('#7f8c8d'), 18, 1.5, d / 2 + 14));
-      // big doors
-      g.add(box(10, 7, 0.3, new THREE.MeshLambertMaterial({ map: stripeTexture('#8e9aa3', '#7b8790') }), 10, 3.5, d / 2 + 0.16));
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(1.03, 1.03, 1.2, 14), lambert(shade(this.brand(), -0.2)));
+      band.position.set(w / 2 - 6, 21.5, -d / 2 + 6);
+      g.add(chimney, band);
+      // office annex with glazing, gate posts, roller doors
+      g.add(box(16, 6.6, 9, facade('plaster', 16, 6.6, 6, 3.3, '#ebe5d9'), -w / 2 + 10, 3.3, d / 2 + 4.5));
+      for (const x of [6, 18]) g.add(box(0.8, 2.6, 0.8, lambert('#6b7177'), x, 1.3, d / 2 + 15));
+      const door = stripeTexture('#9aa2a8', '#8b939a');
+      door.repeat.set(1, 10);
+      g.add(box(9, 7, 0.3, new THREE.MeshLambertMaterial({ map: door }), 12, 3.5, d / 2 + 0.16));
+      g.add(box(0.12, 13, d + 0.2, lambert(shade(this.brand(), -0.15)), w / 2 + 0.02, h / 2, 0));
     } else if (t === 'warehouse') {
-      g.add(box(w, h, d, wall, 0, h / 2, 0));
-      g.add(box(w + 1, 0.8, d + 1, lambert(shade(this.brand(), -0.2)), 0, h + 0.4, 0));
-      const doorTex = stripeTexture('#a7b0b7', '#98a1a8');
-      doorTex.repeat.set(1, 6);
+      g.add(box(w, h, d, facade('industrial', w, h, 8, 40, '#e4e2dc'), 0, h / 2, 0));
+      g.add(box(w + 0.6, 1.4, d + 0.6, lambert(shade(this.brand(), -0.1)), 0, h + 0.1, 0));
+      const doorTex = stripeTexture('#a3abb1', '#959da4');
+      doorTex.repeat.set(1, 8);
       const doorMat = new THREE.MeshLambertMaterial({ map: doorTex });
-      const frameMat = new THREE.MeshLambertMaterial({ map: hazardTexture() });
+      const frameMat = MAT.plastic('#3a3d41');
       for (const x of [-14, 0, 14]) {
-        g.add(box(9.4, 6.4, 0.3, frameMat, x, 3.2, d / 2 + 0.1));
-        g.add(box(8, 5.6, 0.4, doorMat, x, 2.8, d / 2 + 0.2));
+        g.add(box(9, 6.4, 0.3, frameMat, x, 3.2, d / 2 + 0.1));
+        g.add(box(8, 5.8, 0.4, doorMat, x, 2.9, d / 2 + 0.2));
+        for (const bx of [-3.6, 3.6]) g.add(box(0.5, 0.6, 0.4, MAT.plastic('#141516'), x + bx, 1.4, d / 2 + 4.2));
       }
-      g.add(box(w - 4, 1.2, 4, lambert('#a0a4a8'), 0, 0.6, d / 2 + 2));
+      g.add(box(w - 4, 1.2, 4, lambert('#9fa3a6'), 0, 0.6, d / 2 + 2));
+      g.add(box(16, 0.3, 3, MAT.plastic('#2a2d31'), -w / 2 + 10, 4.6, d / 2 + 1.5));
     } else {
-      // restaurant / shop: two storeys, glass storefront
-      g.add(box(w, h, d, wall, 0, h / 2, 0));
-      g.add(box(w + 0.4, 0.5, d + 0.4, lambert(shade(this.brand(), -0.25)), 0, h + 0.25, 0));
-      const glass = new THREE.MeshLambertMaterial({ color: '#2b3a45', emissive: '#6b4a1f', emissiveIntensity: 0.55 });
-      g.add(box(w - 2, 3.2, 0.2, glass, 0, 1.7, d / 2 + 0.05));
-      g.add(box(2.2, 2.8, 0.25, lambert('#3b2a1e'), w / 2 - 3, 1.4, d / 2 + 0.12));
-      // upper windows
-      const win = lambert('#5d7891');
-      for (const x of [-w / 2 + 3, -w / 4 + 1, w / 4 - 1, w / 2 - 3]) g.add(box(2.2, 1.6, 0.15, win, x, 6.2, d / 2 + 0.05));
-      if (t === 'restaurant' || this.merchant.sponsorship?.benefits.enhancedSignage) {
-        const tex = stripeTexture(this.brand(), '#fdfdfd');
-        tex.repeat.set((w - 1) / 3, 1);
-        const awning = new THREE.Mesh(new THREE.BoxGeometry(w - 1, 0.15, 2.6), new THREE.MeshLambertMaterial({ map: tex }));
-        awning.position.set(0, 3.6, d / 2 + 1.25);
-        awning.rotation.x = 0.32;
+      // restaurant / shop: shop floor + two storeys of plaster
+      const upper = h - 4.4;
+      g.add(box(w, upper, d, facade('plaster', w, upper, 6, 3.3, '#efe8da'), 0, 4.4 + upper / 2, 0));
+      g.add(box(w, 4.4, d, lambert('#d7d1c6'), 0, 2.2, 0));
+      g.add(box(w + 0.5, 0.6, d + 0.5, lambert('#bdb5a8'), 0, h + 0.3, 0));
+      g.add(box(w + 0.3, 0.25, d + 0.3, lambert('#cfc8bc'), 0, 4.45, 0));
+      // aluminium-framed glazing with a warm lit interior
+      const glass = new THREE.MeshStandardMaterial({ color: '#2a3138', metalness: 0.7, roughness: 0.12, emissive: '#5a3e1c', emissiveIntensity: 0.35 });
+      g.add(box(w - 2, 3.1, 0.12, glass, 0, 1.75, d / 2 + 0.06));
+      const alu = lambert('#b5b9bc');
+      g.add(box(w - 1.6, 0.14, 0.18, alu, 0, 3.35, d / 2 + 0.1), box(w - 1.6, 0.14, 0.18, alu, 0, 0.18, d / 2 + 0.1));
+      for (let x = -w / 2 + 1; x <= w / 2 - 1; x += (w - 2) / 4) g.add(box(0.12, 3.2, 0.18, alu, x, 1.75, d / 2 + 0.1));
+      g.add(box(2, 2.7, 0.2, new THREE.MeshStandardMaterial({ color: '#1b1e21', metalness: 0.6, roughness: 0.25 }), w / 2 - 3, 1.35, d / 2 + 0.14));
+      if (t === 'restaurant') {
+        const tex = stripeTexture(shade(this.brand(), -0.3), '#ece6dc');
+        tex.repeat.set((w - 1) / 2.4, 1);
+        const awning = new THREE.Mesh(new THREE.BoxGeometry(w - 1, 0.08, 2.2), new THREE.MeshLambertMaterial({ map: tex }));
+        awning.position.set(0, 3.75, d / 2 + 1.05);
+        awning.rotation.x = 0.26;
         awning.castShadow = true;
         g.add(awning);
-      }
-      if (t === 'restaurant' && this.quality !== 'low') {
-        const table = new THREE.CylinderGeometry(0.6, 0.6, 0.1, 10);
-        const leg = new THREE.CylinderGeometry(0.06, 0.06, 0.8, 5);
-        for (const x of [-4, 0, 4]) {
-          const top = new THREE.Mesh(table, lambert('#f4f1ea'));
-          top.position.set(x, 0.85, d / 2 + 4.2);
-          const l = new THREE.Mesh(leg, lambert('#555'));
-          l.position.set(x, 0.4, d / 2 + 4.2);
-          g.add(top, l);
+        if (this.quality !== 'low') {
+          const top = new THREE.CylinderGeometry(0.42, 0.42, 0.04, 16);
+          const leg = new THREE.CylinderGeometry(0.03, 0.03, 0.74, 6);
+          for (const x of [-4.5, -1.5, 1.5]) {
+            const tt = new THREE.Mesh(top, MAT.plastic('#2a2c2f'));
+            tt.position.set(x, 0.76, d / 2 + 3.6);
+            const l = new THREE.Mesh(leg, MAT.plastic('#2a2c2f'));
+            l.position.set(x, 0.37, d / 2 + 3.6);
+            g.add(tt, l);
+            for (const cz of [-0.65, 0.65]) g.add(box(0.42, 0.45, 0.42, MAT.plastic('#3a3d41'), x, 0.23, d / 2 + 3.6 + cz));
+          }
         }
       }
-      if (this.merchant.sponsorship?.benefits.enhancedSignage) for (const x of [-w / 2 - 0.5, w / 2 + 0.5]) g.add(this.flag(x, d / 2 + 3));
+      // a couple of window AC units on the upper floors
+      for (const x of [-w / 2 + 2.2, w / 2 - 2.2]) g.add(box(0.9, 0.55, 0.4, lambert('#d4d5d2'), x, 8.5, d / 2 + 0.25));
+      if (this.merchant.sponsorship?.benefits.enhancedSignage) for (const x of [-w / 2 - 0.6, w / 2 + 0.6]) g.add(this.flagpole(x, d / 2 + 3));
     }
     this.addSign(g, w, d, h);
   }
 
-  private flag(x: number, z: number) {
+  private flagpole(x: number, z: number) {
     const grp = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 7, 6), lambert('#c9ced3'));
-    pole.position.set(0, 3.5, 0);
-    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 2.6), new THREE.MeshLambertMaterial({ color: this.brand(), side: THREE.DoubleSide }));
-    cloth.position.set(0.72, 5.4, 0);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 8, 8), MAT.rim());
+    pole.position.set(0, 4, 0);
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.4), new THREE.MeshLambertMaterial({ color: this.brand(), side: THREE.DoubleSide }));
+    cloth.position.set(0.68, 6.6, 0);
     grp.add(pole, cloth);
     grp.position.set(x, 0, z);
     return grp;
   }
 
-  private signPlane(width: number) {
-    const geo = new THREE.PlaneGeometry(width, width / 4);
-    const mat = new THREE.MeshBasicMaterial({ color: this.brand(), side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geo, mat);
-    // paint asynchronously once the logo is loaded
+  /** Lightbox: a slim box with the painted sign on its face. */
+  private lightbox(width: number) {
+    const height = width / 4;
+    const grp = new THREE.Group();
+    const faceMat = new THREE.MeshBasicMaterial({ color: this.brand() });
+    faceMat.userData.unique = true;
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(width, height), faceMat);
+    face.position.z = 0.16;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(width + 0.12, height + 0.12, 0.3), MAT.plastic('#2a2c2f'));
+    grp.add(back, face);
     void loadImage(this.merchant.logo_url).then((logo) => {
       if (this.disposed) return;
-      const { texture } = signTexture({
-        nameAr: this.merchant.name_ar,
-        nameEn: this.merchant.name_en,
-        color: this.brand(),
-        logo,
-        sponsored: !!this.merchant.sponsorship,
-      });
-      mat.map = texture;
-      mat.color.set('#ffffff');
-      mat.needsUpdate = true;
+      const { texture } = signTexture({ nameAr: this.merchant.name_ar, nameEn: this.merchant.name_en, color: this.brand(), logo });
+      faceMat.map = texture;
+      faceMat.color.set('#ffffff');
+      faceMat.needsUpdate = true;
     });
-    return mesh;
+    return grp;
   }
 
   private addSign(g: THREE.Group, w: number, d: number, h: number) {
     const scale = SIGN_SCALE[this.merchant.sign_size] * (this.merchant.sponsorship?.benefits.signScale ?? 1);
     const pos = this.merchant.sign_position;
-    if (pos === 'front' && h <= 14) {
-      const width = Math.min(w - 1, 10 * scale);
-      const sign = this.signPlane(width);
-      sign.position.set(0, Math.min(h - width / 8 - 0.4, 4.6 + width / 8), d / 2 + 0.3);
+    const big = ['factory', 'warehouse', 'office'].includes(this.merchant.building_type);
+    if (pos === 'front' && !big) {
+      const width = Math.min(w - 1.5, 9.5 * scale);
+      const sign = this.lightbox(width);
+      // fascia band between the shop floor and the first floor
+      sign.position.set(0, Math.max(5.3, 4.5 + width / 8 + 0.1), d / 2 + 0.05);
       g.add(sign);
-      if (this.merchant.sponsorship?.benefits.enhancedSignage) {
-        const glow = box(width + 0.5, width / 4 + 0.5, 0.15, new THREE.MeshBasicMaterial({ color: '#ffd23f' }), 0, sign.position.y, d / 2 + 0.2);
-        glow.castShadow = false;
-        g.add(glow);
-      }
     } else if (pos === 'pylon') {
-      const width = 7 * scale;
-      const sign = this.signPlane(width);
-      const poleH = 6 + width / 4;
-      const pole = box(0.5, poleH, 0.5, lambert('#5f6b75'), w / 2 + 2, poleH / 2, d / 2 + 6);
-      sign.position.set(w / 2 + 2, poleH + width / 8, d / 2 + 6);
-      g.add(pole, sign);
+      const width = 6.5 * scale;
+      const poleH = 5.5 + width / 4;
+      const grp = new THREE.Group();
+      grp.add(box(0.5, poleH, 0.5, MAT.plastic('#3a3d41'), 0, poleH / 2, 0));
+      const front = this.lightbox(width);
+      front.position.set(0, poleH + width / 8, 0.2);
+      const rear = this.lightbox(width);
+      rear.position.set(0, poleH + width / 8, -0.2);
+      rear.rotation.y = Math.PI;
+      grp.add(front, rear);
+      grp.position.set(w / 2 + 2.5, 0, d / 2 + 6);
+      g.add(grp);
     } else {
-      // roof (also used for tall buildings with a "front" sign)
-      const width = Math.min(Math.max(w - 2, 8), (t(this.merchant.building_type) ? 22 : 12) * scale);
-      const sign = this.signPlane(width);
-      sign.position.set(0, h + width / 8 + 0.8, d / 2 - 1);
-      const frame = box(width + 0.4, 0.3, 0.3, lambert('#4a5560'), 0, h + 0.65, d / 2 - 1);
-      g.add(sign, frame);
+      // roof-mounted letters on a frame (also used for tall buildings with a front sign)
+      const width = Math.min(Math.max(w - 2, 8), (big ? 22 : 12) * scale);
+      const sign = this.lightbox(width);
+      sign.position.set(0, h + width / 8 + 1.2, d / 2 - 1.5);
+      g.add(sign);
+      for (const x of [-width / 3, width / 3]) g.add(box(0.15, 1.2, 0.15, MAT.rim(), x, h + 0.6, d / 2 - 1.7));
     }
-    function t(type: BuildingType) {
-      return type === 'factory' || type === 'warehouse' || type === 'office';
-    }
+  }
+
+  private addPin() {
+    const mat = new THREE.SpriteMaterial({ color: '#ffffff', depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(5, 5, 1);
+    const h = BUILDING_SIZE[this.merchant.building_type].h;
+    sprite.position.copy(v3(this.frame.centre, h + (this.merchant.building_type === 'office' ? 9 : 7.5)));
+    void loadImage(this.merchant.logo_url).then((img) => {
+      if (this.disposed) return;
+      mat.map = pinTexture(img, '#e38b1d');
+      mat.needsUpdate = true;
+    });
+    this.pin = sprite;
+    this.group.add(sprite);
   }
 
   private addLoadingZone(branded: boolean) {
     const p = this.frame.pickup;
-    const zone = new THREE.Mesh(new THREE.PlaneGeometry(10, 6), new THREE.MeshLambertMaterial({ map: hazardTexture(), transparent: true, opacity: 0.85 }));
+    const tex = hazardTexture();
+    const zone = new THREE.Mesh(new THREE.RingGeometry(3.4, 3.9, 4, 1), new THREE.MeshLambertMaterial({ map: tex }));
     zone.rotation.x = -Math.PI / 2;
-    zone.rotation.z = Math.atan2(this.frame.front.y, this.frame.front.x);
+    zone.rotation.z = Math.atan2(this.frame.front.y, this.frame.front.x) + Math.PI / 4;
     zone.position.copy(v3(p, 0.14));
     this.group.add(zone);
     if (branded) {
-      const mat = new THREE.MeshBasicMaterial({ transparent: true, color: '#ffffff' });
-      const decal = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 4.4), mat);
+      const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, color: '#ffffff' });
+      const decal = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), mat);
       decal.rotation.x = -Math.PI / 2;
       decal.position.copy(v3(p, 0.18));
       void loadImage(this.merchant.logo_url).then((img) => {
         if (!img || this.disposed) return;
-        const tex = new THREE.Texture(img);
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.needsUpdate = true;
-        mat.map = tex;
+        const t = new THREE.Texture(img);
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.needsUpdate = true;
+        mat.map = t;
         mat.needsUpdate = true;
       });
       this.group.add(decal);
@@ -296,15 +319,14 @@ export class MerchantView {
 
   private addBillboard() {
     const f = this.frame;
-    // beside the pickup, set back from the kerb
     const side = { x: -f.front.y, y: f.front.x };
     const at = { x: f.pickup.x + side.x * 12 - f.front.x * 2, y: f.pickup.y + side.y * 12 - f.front.y * 2 };
     const grp = new THREE.Group();
     grp.position.copy(v3(at));
     grp.rotation.y = Math.atan2(f.front.x, -f.front.y);
-    grp.add(box(0.5, 7, 0.5, lambert('#4a5560'), -3, 3.5, 0), box(0.5, 7, 0.5, lambert('#4a5560'), 3, 3.5, 0));
-    const sign = this.signPlane(10);
-    sign.position.set(0, 8, 0);
+    grp.add(box(0.45, 7, 0.45, MAT.plastic('#3a3d41'), -3, 3.5, 0), box(0.45, 7, 0.45, MAT.plastic('#3a3d41'), 3, 3.5, 0));
+    const sign = this.lightbox(10);
+    sign.position.set(0, 8.2, 0);
     grp.add(sign);
     this.group.add(grp);
   }
@@ -316,16 +338,16 @@ export class MerchantView {
       this.marker = null;
     }
     if (!kind) return;
-    this.marker = targetBeacon(kind === 'pickup' ? '#2ec4ff' : '#3ddc84', kind === 'pickup' ? this.frame.pickup : this.frame.dropoff);
+    this.marker = targetBeacon(kind, kind === 'pickup' ? this.frame.pickup : this.frame.dropoff, this.brand());
+    // staff member waits with the order, facing the street
+    const person = this.marker.getObjectByName('person');
+    if (person) person.rotation.y = Math.atan2(-this.frame.front.x, this.frame.front.y);
     this.group.add(this.marker);
   }
 
   update(t: number) {
-    if (this.spin) {
-      this.spin.rotation.y = t * 1.5;
-      this.spin.position.y += Math.sin(t * 2) * 0.01;
-    }
-    const s = 1 + Math.sin(t * 3) * 0.06;
+    if (this.pin) this.pin.position.y += Math.sin(t * 1.6) * 0.006;
+    const s = 1 + Math.sin(t * 2.4) * 0.03;
     this.pickupRing.scale.set(s, s, s);
   }
 
@@ -344,40 +366,26 @@ export class MerchantView {
   }
 }
 
-/** Tall translucent light column + pulsing ground ring + a waiting person with a parcel. */
-export function targetBeacon(color: string, at: LocalPoint) {
+/** Mission marker: soft light column, kerb ring and a person with the parcel. */
+export function targetBeacon(kind: 'pickup' | 'dropoff', at: LocalPoint, shirt = '#3a3d41') {
+  const color = '#e38b1d';
   const grp = new THREE.Group();
   grp.position.copy(v3(at));
   const column = new THREE.Mesh(
-    new THREE.CylinderGeometry(2.4, 2.4, 70, 24, 1, true),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
+    new THREE.CylinderGeometry(1.6, 1.6, 60, 24, 1, true),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
   );
-  column.position.y = 35;
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(3.2, 4, 40),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
-  );
+  column.position.y = 30;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(3.3, 3.7, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.2;
   ring.name = 'pulse';
-  grp.add(column, ring, person(color));
-  const bang = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.4, 4), new THREE.MeshBasicMaterial({ color: '#ffd23f' }));
-  bang.rotation.x = Math.PI;
-  bang.position.set(2.5, 3.3, 0);
-  bang.name = 'bob';
-  grp.add(bang);
-  return grp;
-}
-
-export function person(shirt: string) {
-  const grp = new THREE.Group();
-  const skin = lambert('#c99a74');
-  const legs = box(0.5, 0.9, 0.3, lambert('#2c3e50'), 0, 0.45, 0);
-  const torso = box(0.6, 0.75, 0.35, lambert(shirt), 0, 1.28, 0);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), skin);
-  head.position.y = 1.85;
-  const parcel = box(0.55, 0.4, 0.45, lambert('#c8a165'), 0, 1.2, 0.4);
-  grp.add(legs, torso, head, parcel);
-  grp.position.set(2.5, 0, 0);
+  const fill = new THREE.Mesh(new THREE.CircleGeometry(3.3, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }));
+  fill.rotation.x = -Math.PI / 2;
+  fill.position.y = 0.19;
+  const p = pedestrian(kind === 'pickup' ? shirt : '#4b5563', kind === 'pickup');
+  p.name = 'person';
+  p.position.set(2.4, 0, 0);
+  grp.add(column, ring, fill, p);
   return grp;
 }

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { paintSign } from '../signPainter';
 import { BUILDING_TYPES, SIGN_POSITIONS, SIGN_SIZES, type BuildingType, type GeoPoint, type Merchant, type MerchantHours, type SignPosition, type SignSize } from '../../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
+import { Icon } from '../icons';
 import { Field, StatusBadge, errorsFrom, pointLabel, useAdminData, useL, type FieldErrors } from './common';
 
 export type { PointKey } from './common';
@@ -185,11 +187,37 @@ export function MerchantEditor({
 
   return (
     <div className="a-card" data-testid="merchant-editor">
-      <div className="a-row">
-        <h2 style={{ margin: 0 }}>{draft.id ? L('تعديل النشاط', 'Edit business') : L('نشاط جديد', 'New business')}</h2>
-        <span className="a-spacer" />
+      <div className="editor-head">
+        {preview('logo') ? <img className="a-logo" style={{ width: 44, height: 44 }} src={preview('logo')!} alt="" /> : <span className="a-logo" style={{ width: 44, height: 44 }} />}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="small" style={{ color: 'var(--muted)' }}>
+            {draft.id ? L('تعديل النشاط', 'Edit business') : L('نشاط جديد', 'New business')}
+            {existing && ` · ${existing.code}`}
+          </div>
+          <div style={{ fontWeight: 600, fontSize: '1.02rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {pick(draft.name_ar, draft.name_en) || L('بدون اسم', 'Untitled')}
+          </div>
+        </div>
         {existing && <StatusBadge status={existing.status} />}
       </div>
+      {existing && (
+        <div className="a-row" style={{ margin: '12px 0 4px' }}>
+          <span className="small" style={{ color: 'var(--muted)' }}>
+            {L('الحالة', 'Status')}
+          </span>
+          <div className="a-seg">
+            <button className={existing.status === 'active' ? 'on' : ''} onClick={() => existing.status !== 'active' && void setStatus('active')} data-testid="restore-merchant">
+              {L('فعّال', 'Active')}
+            </button>
+            <button className={existing.status === 'disabled' ? 'on' : ''} onClick={() => existing.status !== 'disabled' && void setStatus('disabled')} data-testid="disable-merchant">
+              {L('معطّل', 'Disabled')}
+            </button>
+            <button className={existing.status === 'archived' ? 'on' : ''} onClick={() => existing.status !== 'archived' && void setStatus('archived')} data-testid="archive-merchant">
+              {L('مؤرشف', 'Archived')}
+            </button>
+          </div>
+        </div>
+      )}
       {message && <div className={`a-alert ${message.kind}`} style={{ marginTop: 8 }} data-testid="editor-message">{message.text}</div>}
 
       <h3>{L('النقاط على الخريطة', 'Points on the map')}</h3>
@@ -215,7 +243,7 @@ export function MerchantEditor({
       )}
       <div className="a-row" style={{ marginTop: 6 }}>
         <button className="a-btn sm" type="button" onClick={onSnap}>
-          🧲 {L('ضبط المدخل والاستلام على أقرب شارع', 'Snap entrance & pickup to nearest road')}
+          <Icon name="magnet" size={15} /> {L('ضبط المدخل والاستلام على أقرب شارع', 'Snap entrance & pickup to nearest road')}
         </button>
       </div>
       <p className="small" style={{ color: 'var(--a-muted)', margin: '6px 0 0' }}>
@@ -280,10 +308,13 @@ export function MerchantEditor({
         </Field>
       </div>
 
+      <h3>{L('اللافتة داخل اللعبة', 'In-game sign')}</h3>
+      <SignPreview nameAr={draft.name_ar} nameEn={draft.name_en} color={draft.brand_color} logoUrl={preview('logo') ?? null} />
+
       <h3>{L('الصور', 'Images')}</h3>
       <div className="a-grid">
         {(['logo', 'cover'] as const).map((kind) => (
-          <div key={kind} className="img-slot">
+          <div key={kind} className={`img-slot ${kind === 'cover' ? 'cover' : ''}`}>
             {preview(kind) ? <img src={preview(kind)!} alt="" data-testid={`preview-${kind}`} /> : <img alt="" />}
             <label className="a-field" style={{ flex: 1 }}>
               <span>{kind === 'logo' ? L('الشعار', 'Logo') : L('صورة الغلاف', 'Cover image')}</span>
@@ -311,7 +342,7 @@ export function MerchantEditor({
                   style={{ position: 'absolute', top: 2, insetInlineEnd: 2, padding: '0 6px' }}
                   onClick={async () => data.upsertMerchant(await api.del<Merchant>(`/api/admin/merchants/${draft.id}/gallery/${g.id}`))}
                 >
-                  ✕
+                  <Icon name="close" size={14} />
                 </button>
               </div>
             ))}
@@ -378,7 +409,7 @@ export function MerchantEditor({
               data-testid={`menu-price-${i}`}
             />
             <button className="a-btn sm danger" type="button" onClick={() => set('menu', draft.menu.filter((_, k) => k !== i))}>
-              ✕
+              <Icon name="close" size={14} />
             </button>
           </div>
         ))}
@@ -389,7 +420,7 @@ export function MerchantEditor({
           onClick={() => set('menu', [...draft.menu, { name_ar: '', name_en: '', description_ar: '', description_en: '', price_iqd: null }])}
           data-testid="menu-add"
         >
-          ＋ {L('إضافة صنف', 'Add item')}
+          <Icon name="plus" size={15} /> {L('إضافة صنف', 'Add item')}
         </button>
       </div>
 
@@ -398,30 +429,41 @@ export function MerchantEditor({
         <textarea value={draft.notes} onChange={(e) => set('notes', e.target.value)} />
       </Field>
 
-      <div className="a-row" style={{ marginTop: 12, position: 'sticky', bottom: 0, background: '#fff', paddingTop: 8 }}>
+      <div className="editor-foot">
         <button className="a-btn primary" onClick={() => void save()} disabled={saving} data-testid="save-merchant">
-          {saving ? '…' : `💾 ${L('حفظ', 'Save')}`}
+          <Icon name="check" size={15} /> {saving ? L('جارٍ الحفظ…', 'Saving…') : L('حفظ التغييرات', 'Save changes')}
         </button>
         <button className="a-btn" onClick={() => onDone(null)} disabled={saving}>
           {L('إلغاء', 'Cancel')}
         </button>
         <span className="a-spacer" />
-        {existing && existing.status === 'active' && (
-          <button className="a-btn danger" onClick={() => void setStatus('disabled')} data-testid="disable-merchant">
-            {L('تعطيل', 'Disable')}
-          </button>
-        )}
-        {existing && existing.status !== 'archived' && (
-          <button className="a-btn danger" onClick={() => void setStatus('archived')} data-testid="archive-merchant">
-            {L('أرشفة', 'Archive')}
-          </button>
-        )}
-        {existing && existing.status !== 'active' && (
-          <button className="a-btn good" onClick={() => void setStatus('active')} data-testid="restore-merchant">
-            {L('استعادة', 'Restore')}
-          </button>
+        {draft.id && (
+          <a className="a-btn ghost" href={`/?focus=${draft.id}`} target="_blank" rel="noreferrer">
+            <Icon name="external" size={15} /> {L('عرض في اللعبة', 'View in game')}
+          </a>
         )}
       </div>
     </div>
   );
+}
+
+/** Live preview of the storefront sign, painted exactly as the game paints it. */
+function SignPreview({ nameAr, nameEn, color, logoUrl }: { nameAr: string; nameEn: string; color: string; logoUrl: string | null }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [logo, setLogo] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!logoUrl) return setLogo(null);
+    const img = new Image();
+    img.onload = () => setLogo(img);
+    img.onerror = () => setLogo(null);
+    img.src = logoUrl;
+  }, [logoUrl]);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    void document.fonts.load('700 40px "IBM Plex Sans Arabic"').finally(() =>
+      paintSign(c.getContext('2d')!, c.width, c.height, { nameAr, nameEn, color, logo }),
+    );
+  }, [nameAr, nameEn, color, logo]);
+  return <canvas ref={ref} width={768} height={192} className="sign-preview" data-testid="sign-preview" />;
 }

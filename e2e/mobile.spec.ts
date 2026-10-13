@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test';
 
 test('game menu, touch controls and throttle on a phone screen', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('dg.settings', JSON.stringify({ quality: 'low', autoQuality: false })));
   await page.goto('/?debug=1');
   await expect(page.getByTestId('main-menu')).toBeVisible();
   await expect(page.getByTestId('vehicle-card')).toBeVisible();

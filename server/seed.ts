@@ -4,10 +4,11 @@
 import { district } from '../shared/district';
 import { buildRoadGraph, routeBetween } from '../shared/roads';
 import type { BuildingType, MissionType, PackageBenefits, PackageFeature } from '../shared/types';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sha256 } from './auth';
 import type { Db, Tx } from './db';
 import { withTx } from './db';
-import { coverSvg, logoSvg } from './logos';
 import { kerbPoint, placeBeside, type Placement } from './placement';
 
 const graph = buildRoadGraph(district);
@@ -38,8 +39,6 @@ interface MerchantSeed {
   name_en: string;
   category: string;
   building_type: BuildingType;
-  icon: string;
-  initials: string;
   color: string;
   place: Placement;
   description_ar: string;
@@ -63,8 +62,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Abu Ali Restaurant',
     category: 'restaurants',
     building_type: 'restaurant',
-    icon: 'restaurant',
-    initials: 'AA',
     color: '#c0392b',
     place: placeBeside('sixty-meter', 0.4, -1, 'restaurant'),
     description_ar: `مشويات عراقية وكردية على الفحم، وأطباق يومية للعائلات. ${DEMO_NOTE_AR}`,
@@ -90,8 +87,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Citadel View Café',
     category: 'restaurants',
     building_type: 'restaurant',
-    icon: 'cafe',
-    initials: 'CV',
     color: '#6f4e37',
     place: placeBeside('sixty-meter', 0.53, -1, 'restaurant'),
     description_ar: `قهوة مختصة وحلويات خفيفة. ${DEMO_NOTE_AR}`,
@@ -112,8 +107,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Pizza Sixty',
     category: 'restaurants',
     building_type: 'restaurant',
-    icon: 'pizza',
-    initials: 'P60',
     color: '#e67e22',
     place: placeBeside('sixty-meter', 0.75, -1, 'restaurant'),
     description_ar: `بيتزا مخبوزة في فرن حطب. ${DEMO_NOTE_AR}`,
@@ -134,8 +127,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Nishtiman Shawarma',
     category: 'restaurants',
     building_type: 'restaurant',
-    icon: 'restaurant',
-    initials: 'NS',
     color: '#d35400',
     place: placeBeside('forty-meter', 0.35, 1, 'restaurant'),
     description_ar: `شاورما لحم ودجاج وصمون حار. ${DEMO_NOTE_AR}`,
@@ -156,8 +147,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Hawler Bakery & Sweets',
     category: 'restaurants',
     building_type: 'restaurant',
-    icon: 'bakery',
-    initials: 'HB',
     color: '#b8860b',
     place: placeBeside('forty-meter', 0.65, 1, 'restaurant'),
     description_ar: `خبز تنور وكليجة وحلويات شرقية. ${DEMO_NOTE_AR}`,
@@ -177,8 +166,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Erbil Fresh Market',
     category: 'grocery',
     building_type: 'shop',
-    icon: 'grocery',
-    initials: 'EFM',
     color: '#27ae60',
     place: placeBeside('sixty-meter', 0.57, 1, 'shop'),
     description_ar: `خضار وفواكه يومية ومواد غذائية. ${DEMO_NOTE_AR}`,
@@ -199,8 +186,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Zagros Electronics',
     category: 'electronics',
     building_type: 'shop',
-    icon: 'electronics',
-    initials: 'ZE',
     color: '#1f6fd1',
     place: placeBeside('sixty-meter', 0.36, 1, 'shop'),
     description_ar: `هواتف وأجهزة منزلية وإكسسوارات. ${DEMO_NOTE_AR}`,
@@ -220,8 +205,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Sirwan Home Goods',
     category: 'retail',
     building_type: 'shop',
-    icon: 'shop',
-    initials: 'SH',
     color: '#8e44ad',
     place: placeBeside('market-street', 0.4, -1, 'shop'),
     description_ar: `أدوات مطبخ ومفروشات. ${DEMO_NOTE_AR}`,
@@ -240,8 +223,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Shaqlawa Books',
     category: 'retail',
     building_type: 'shop',
-    icon: 'books',
-    initials: 'SB',
     color: '#16a085',
     place: placeBeside('park-street', 0.33, 1, 'shop'),
     description_ar: `كتب وقرطاسية ولوازم مدرسية. ${DEMO_NOTE_AR}`,
@@ -260,8 +241,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Hayat Pharmacy (simulated)',
     category: 'pharmacy',
     building_type: 'shop',
-    icon: 'pharmacy',
-    initials: 'HP',
     color: '#0e9f8f',
     place: placeBeside('sixty-meter', 0.31, -1, 'shop'),
     description_ar: `صيدلية افتراضية داخل اللعبة؛ لا تُباع أدوية حقيقية. ${DEMO_NOTE_AR}`,
@@ -279,8 +258,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Kurdistan Paper Industries',
     category: 'factories',
     building_type: 'factory',
-    icon: 'factory',
-    initials: 'KPI',
     color: '#a0522d',
     place: placeBeside('industrial-1', 0.37, 1, 'factory', 10),
     description_ar: `تصنيع ورق التغليف والكرتون المضلّع. ${DEMO_NOTE_AR}`,
@@ -300,8 +277,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Hawler Food Packaging',
     category: 'industrial',
     building_type: 'factory',
-    icon: 'factory',
-    initials: 'HFP',
     color: '#7f8c3a',
     place: placeBeside('industrial-1', 0.6, 1, 'factory', 10),
     description_ar: `تعبئة وتغليف المواد الغذائية للمطاعم. ${DEMO_NOTE_AR}`,
@@ -317,8 +292,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Tigris Logistics',
     category: 'warehouses',
     building_type: 'warehouse',
-    icon: 'warehouse',
-    initials: 'TL',
     color: '#2c3e50',
     place: placeBeside('industrial-2', 0.4, -1, 'warehouse', 10),
     description_ar: `تخزين وتوزيع للتجار في أربيل. ${DEMO_NOTE_AR}`,
@@ -335,8 +308,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Sixty Cold Storage',
     category: 'warehouses',
     building_type: 'warehouse',
-    icon: 'warehouse',
-    initials: 'SCS',
     color: '#2980b9',
     place: placeBeside('warehouse-lane', 0.28, 1, 'warehouse', 10),
     description_ar: `تخزين مبرد للحوم والخضار. ${DEMO_NOTE_AR}`,
@@ -352,8 +323,6 @@ const MERCHANTS: MerchantSeed[] = [
     name_en: 'Nawroz Holding',
     category: 'offices',
     building_type: 'office',
-    icon: 'office',
-    initials: 'NH',
     color: '#34495e',
     place: placeBeside('office-avenue', 0.34, 1, 'office', 10),
     description_ar: `مكتب إداري لشركة استثمار وهمية. ${DEMO_NOTE_AR}`,
@@ -534,11 +503,19 @@ const SPONSORSHIPS: { merchant: string; pkg: string; from: number; to: number; n
   { merchant: 'pizza-sixty', pkg: 'featured', from: 7, to: 37, notes: 'Scheduled demo campaign' },
 ];
 
-async function insertSvg(tx: Tx, svg: string): Promise<string> {
-  const buf = Buffer.from(svg, 'utf8');
+/** db/seed-assets: PNG logos and covers rendered by scripts/render-brand-assets.mjs. */
+function assetsDir(): string {
+  const candidates = [join(process.cwd(), 'db', 'seed-assets'), join(import.meta.dirname, '..', 'db', 'seed-assets'), join(import.meta.dirname, '..', '..', 'db', 'seed-assets')];
+  const found = candidates.find((d) => existsSync(join(d, 'brands.json')));
+  if (!found) throw new Error('db/seed-assets not found');
+  return found;
+}
+
+async function insertPng(tx: Tx, file: string): Promise<string> {
+  const buf = readFileSync(file);
   const { rows } = await tx.query(
-    'INSERT INTO images(mime, bytes, size, sha256) VALUES ($1, $2, $3, $4) RETURNING id',
-    ['image/svg+xml', buf, buf.length, sha256(buf)],
+    'INSERT INTO images(mime, bytes, size, sha256, width, height) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+    ['image/png', buf, buf.length, sha256(buf), buf.readUInt32BE(16), buf.readUInt32BE(20)],
   );
   return rows[0].id as string;
 }
@@ -556,9 +533,12 @@ export async function seedDemo(tx: Tx) {
 
   const merchantIds = new Map<string, number>();
   const placements = new Map<string, Placement>();
+  const dir = assetsDir();
+  const brands = JSON.parse(readFileSync(join(dir, 'brands.json'), 'utf8')) as Record<string, { bg: string }>;
   for (const [i, m] of MERCHANTS.entries()) {
-    const logo = await insertSvg(tx, logoSvg({ initials: m.initials, color: m.color, icon: m.icon }));
-    const cover = await insertSvg(tx, coverSvg({ color: m.color, title: m.name_en, icon: m.icon }));
+    const logo = await insertPng(tx, join(dir, `${m.key}-logo.png`));
+    const cover = await insertPng(tx, join(dir, `${m.key}-cover.png`));
+    const brandColor = brands[m.key]?.bg ?? m.color;
     const p = m.place;
     const { rows } = await tx.query(
       `INSERT INTO merchants(code, name_ar, name_en, category_id, description_ar, description_en, address_ar, address_en,
@@ -587,7 +567,7 @@ export async function seedDemo(tx: Tx) {
         m.building_type,
         m.sign_size ?? 'medium',
         m.sign_position ?? 'front',
-        m.color,
+        brandColor,
         logo,
         cover,
         JSON.stringify(m.hours),

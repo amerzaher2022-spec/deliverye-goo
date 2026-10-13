@@ -3,6 +3,7 @@
 // this class through a small API and a HUD callback.
 
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { toLocal, type LocalPoint } from '../../../shared/geo';
 import { distanceToRoadEdge, findRoute, type RoadGraph, type Route } from '../../../shared/roads';
 import { DISCOVERY_RADIUS_M, DROPOFF_RADIUS_M, PICKUP_RADIUS_M } from '../../../shared/rules';
@@ -34,12 +35,14 @@ export interface EngineCallbacks {
   onDiscover: (merchantId: number) => void;
   onTapMerchant: (merchantId: number) => void;
   onBump: (speed: number) => void;
+  /** frame rate stayed low: the engine suggests a lower quality level */
+  onSlow?: (suggested: Quality) => void;
 }
 
 const QUALITY = {
-  low: { ratio: 1, fog: 260, shadows: false },
-  medium: { ratio: 1.5, fog: 480, shadows: false },
-  high: { ratio: 2, fog: 750, shadows: true },
+  low: { ratio: 1, fog: 300, shadows: false },
+  medium: { ratio: 1.5, fog: 520, shadows: false },
+  high: { ratio: 2, fog: 800, shadows: true },
 } as const;
 
 export class Engine {
@@ -49,7 +52,7 @@ export class Engine {
   private world!: World;
   private vehicle!: Vehicle;
   private merchants = new Map<number, MerchantView>();
-  private sun = new THREE.DirectionalLight('#fff4e0', 1.6);
+  private sun = new THREE.DirectionalLight('#ffe8c7', 2.6);
   private sky!: THREE.Mesh;
   private lastFrame = performance.now();
   private elapsed = 0;
@@ -92,11 +95,17 @@ export class Engine {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: opts.quality !== 'low', powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.0;
     this.applyQuality();
 
-    this.scene.add(new THREE.HemisphereLight('#d7ecff', '#b8a07a', 1.15));
-    this.sun.position.set(-120, 220, 80);
+    // image-based lighting gives the vehicles believable reflections
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.55;
+    pmrem.dispose();
+
+    this.scene.add(new THREE.HemisphereLight('#dfe8f0', '#8f7d60', 1.05));
+    this.sun.position.set(-150, 160, 110);
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
     sc.left = sc.bottom = -70;
@@ -128,20 +137,20 @@ export class Engine {
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.sun.castShadow = q.shadows;
-    this.scene.fog = new THREE.Fog('#cfe3f2', q.fog * 0.35, q.fog);
+    this.scene.fog = new THREE.Fog('#d9d6cc', q.fog * 0.3, q.fog);
     this.camera.far = q.fog + 50;
     this.camera.updateProjectionMatrix();
   }
 
   private buildSky() {
     const geo = new THREE.SphereGeometry(1, 24, 12);
-    const top = new THREE.Color('#5aa0e0');
-    const bottom = new THREE.Color('#e6f0f6');
+    const top = new THREE.Color('#7fa3c4');
+    const bottom = new THREE.Color('#dedbd1');
     const colors: number[] = [];
     const pos = geo.attributes.position!;
     for (let i = 0; i < pos.count; i++) {
       const t = Math.max(0, pos.getY(i));
-      const c = bottom.clone().lerp(top, Math.pow(t, 0.6));
+      const c = bottom.clone().lerp(top, Math.pow(t, 0.45));
       colors.push(c.r, c.g, c.b);
     }
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -150,9 +159,7 @@ export class Engine {
     this.scene.add(this.sky);
   }
 
-  private reservedBoxes(list: Merchant[]) {
-    return list.filter((m) => m.status === 'active').map((m) => merchantFrame(m, this.district, this.graph).box);
-  }
+
 
   private buildWorld(merchants: Merchant[]) {
     if (this.world) {
@@ -164,7 +171,12 @@ export class Engine {
       v.dispose();
     }
     this.merchants.clear();
-    this.world = new World(this.district, this.graph, { quality: this.quality, reserved: this.reservedBoxes(merchants) });
+    const active = merchants.filter((m) => m.status === 'active').map((m) => merchantFrame(m, this.district, this.graph));
+    this.world = new World(this.district, this.graph, {
+      quality: this.quality,
+      reserved: active.map((f) => f.box),
+      keepClear: active.flatMap((f) => [f.pickup, f.dropoff]),
+    });
     this.scene.add(this.world.group);
     this.setMerchants(merchants);
   }
@@ -214,7 +226,16 @@ export class Engine {
   }
 
   setCameraMode(m: CameraMode) {
+    if (m !== this.cameraMode) this.snapNext = true;
     this.cameraMode = m;
+  }
+
+  private snapNext = true;
+  private showcaseOffset = { x: 0, y: 0 };
+  /** Where the vehicle should sit on screen in the menu (metres of look-target offset, camera right/up). */
+  setShowcaseOffset(x: number, y: number) {
+    this.showcaseOffset = { x, y };
+    this.snapNext = true;
   }
 
   getCameraMode() {
@@ -287,7 +308,7 @@ export class Engine {
     } else if (mission.destination_merchant_id && this.merchants.has(mission.destination_merchant_id)) {
       this.merchants.get(mission.destination_merchant_id)!.setTarget('dropoff');
     } else {
-      this.customerBeacon = targetBeacon('#3ddc84', this.target);
+      this.customerBeacon = targetBeacon('dropoff', this.target);
       this.scene.add(this.customerBeacon);
     }
   }
@@ -308,7 +329,7 @@ export class Engine {
     }
     if (pts.length < 2) return;
     const mat = new THREE.MeshBasicMaterial({ map: this.routeTex, transparent: true, depthWrite: false, color: '#ffffff' });
-    this.routeMesh = new THREE.Mesh(ribbon(pts, 2.6, 0.3, 3), mat);
+    this.routeMesh = new THREE.Mesh(ribbon(pts, 1.6, 0.3, 2.4), mat);
     this.routeMesh.renderOrder = 2;
     this.scene.add(this.routeMesh);
   }
@@ -366,13 +387,32 @@ export class Engine {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // wider view in portrait so the road ahead stays visible
-    this.camera.fov = w < h ? 72 : 60;
+    this.camera.fov = w < h ? 70 : 55;
     this.camera.updateProjectionMatrix();
+  }
+
+  // adaptive quality: sample the frame rate in 4-second windows after a warm-up
+  private perf = { start: performance.now() + 3000, frames: 0 };
+  adaptive = true;
+
+  private watchPerformance(nowMs: number) {
+    if (!this.adaptive || this.quality === 'low' || this.paused || document.hidden) {
+      this.perf = { start: nowMs + 1000, frames: 0 };
+      return;
+    }
+    if (nowMs < this.perf.start) return;
+    this.perf.frames++;
+    const span = nowMs - this.perf.start;
+    if (span < 4000) return;
+    const fps = (this.perf.frames * 1000) / span;
+    this.perf = { start: nowMs + 2000, frames: 0 };
+    if (fps < 24) this.cb.onSlow?.(this.quality === 'high' ? 'medium' : 'low');
   }
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     const nowMs = performance.now();
+    this.watchPerformance(nowMs);
     const dt = Math.min(0.05, (nowMs - this.lastFrame) / 1000);
     this.lastFrame = nowMs;
     this.elapsed += dt;
@@ -459,20 +499,28 @@ export class Engine {
     const fx = Math.sin(v.heading);
     const fy = Math.cos(v.heading);
     const car = v.id === 'car';
-    let back = car ? 9 : 6.5;
-    let up = car ? 4.2 : 3.4;
-    let ahead = 6;
+    let back = car ? 7.6 : 5.2;
+    let up = car ? 3.0 : 2.5;
+    let ahead = 8;
+    if (this.snapNext) {
+      snap = true;
+      this.snapNext = false;
+    }
     if (this.cameraMode === 'showcase') {
-      // slow orbit in front of the vehicle for the menu
-      const a = this.elapsed * 0.15 + 0.6;
-      const dist = car ? 8 : 5;
-      const want = new THREE.Vector3(v.x + Math.sin(v.heading + a) * dist, car ? 2.2 : 1.7, -(v.y + Math.cos(v.heading + a) * dist));
+      // slow three-quarter orbit around the vehicle for the menu
+      const a = this.elapsed * 0.08 + 0.75;
+      const dist = car ? 7.2 : 4.6;
+      const want = new THREE.Vector3(v.x + Math.sin(v.heading + a) * dist, car ? 1.9 : 1.55, -(v.y + Math.cos(v.heading + a) * dist));
+      const centre = new THREE.Vector3(v.x, car ? 0.8 : 0.9, -v.y);
+      const dir = centre.clone().sub(want).normalize();
+      const right = dir.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
+      const look = centre.add(right.multiplyScalar(this.showcaseOffset.x * (car ? 1.5 : 1))).add(new THREE.Vector3(0, this.showcaseOffset.y, 0));
       const k = snap ? 1 : 1 - Math.exp(-dt * 3);
       this.camPos.lerp(want, k);
-      this.camLook.lerp(new THREE.Vector3(v.x, car ? 1.0 : 1.1, -v.y), k);
+      this.camLook.lerp(look, k);
       this.camera.position.copy(this.camPos);
       this.camera.lookAt(this.camLook);
-      this.vehicle.object.visible = true;
+      if (this.vehicle.rider) this.vehicle.rider.visible = true;
       this.sky.position.copy(this.camera.position);
       this.sky.scale.setScalar(this.camera.far * 0.9);
       return;
@@ -482,12 +530,12 @@ export class Engine {
       up = 14;
       ahead = 10;
     } else if (this.cameraMode === 'rider') {
-      back = car ? -0.2 : -0.1;
-      up = car ? 1.55 : 1.95;
+      back = car ? -0.35 : -0.05;
+      up = car ? 1.25 : 1.78;
       ahead = 20;
     }
     const want = new THREE.Vector3(v.x - fx * back, up, -(v.y - fy * back));
-    const look = new THREE.Vector3(v.x + fx * ahead, this.cameraMode === 'rider' ? up - 0.6 : 1.2, -(v.y + fy * ahead));
+    const look = new THREE.Vector3(v.x + fx * ahead, this.cameraMode === 'rider' ? up - 0.5 : 1.4, -(v.y + fy * ahead));
     const k = snap ? 1 : 1 - Math.exp(-dt * (this.cameraMode === 'rider' ? 20 : 6));
     this.camPos.lerp(want, k);
     this.camLook.lerp(look, k);
@@ -497,8 +545,8 @@ export class Engine {
     }
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
-    // hide the rider in first-person view
-    this.vehicle.object.visible = this.cameraMode !== 'rider' || car;
+    // hide the rider's own body in first-person view
+    if (this.vehicle.rider) this.vehicle.rider.visible = this.cameraMode !== 'rider';
     this.sky.position.copy(this.camera.position);
     this.sky.scale.setScalar(this.camera.far * 0.9);
     if (this.sun.castShadow) {
@@ -600,10 +648,10 @@ function chevronTexture() {
   c.width = 64;
   c.height = 64;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = 'rgba(30,170,255,0.55)';
+  ctx.fillStyle = 'rgba(227,139,29,0.5)';
   ctx.fillRect(0, 0, 64, 64);
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-  ctx.lineWidth = 9;
+  ctx.strokeStyle = 'rgba(255,244,226,0.95)';
+  ctx.lineWidth = 7;
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(12, 42);

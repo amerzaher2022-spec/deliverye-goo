@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Category, Merchant, Mission, SponsorshipPackage } from '../../../shared/types';
 import { ApiError, api } from '../api';
 import { useI18n } from '../i18n';
+import { Icon } from '../icons';
 
 /** Bilingual inline string: L('عربي', 'English'). */
 export function useL() {
@@ -149,4 +150,34 @@ export function pointLabel(k: PointKey, lang: 'ar' | 'en') {
     dropoff: ['نقطة التسليم', 'Drop-off point'],
   };
   return labels[k][lang === 'ar' ? 0 : 1];
+}
+
+export function EmptyState({ icon = 'search', title, children }: { icon?: Parameters<typeof Icon>[0]['name']; title: string; children?: ReactNode }) {
+  return (
+    <div className="a-empty">
+      <Icon name={icon} size={28} />
+      <b>{title}</b>
+      {children && <div className="small">{children}</div>}
+    </div>
+  );
+}
+
+export function TableSkeleton({ rows = 5, cols = 5 }: { rows?: number; cols?: number }) {
+  return (
+    <div className="a-table-wrap">
+      <table className="a-table">
+        <tbody>
+          {Array.from({ length: rows }, (_, r) => (
+            <tr key={r}>
+              {Array.from({ length: cols }, (_, c) => (
+                <td key={c}>
+                  <div className="a-skeleton" style={{ width: `${50 + ((r * 7 + c * 13) % 45)}%` }} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }

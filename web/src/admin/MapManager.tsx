@@ -6,6 +6,7 @@ import { toLatLng, toLocal, type LatLng } from '../../../shared/geo';
 import { buildRoadGraph, nearestOnNetwork } from '../../../shared/roads';
 import type { Merchant } from '../../../shared/types';
 import { useI18n } from '../i18n';
+import { Icon } from '../icons';
 import { StatusBadge, pointLabel, useAdminData, useL } from './common';
 import { MerchantEditor, emptyDraft, type Draft, type PointKey } from './MerchantEditor';
 
@@ -55,7 +56,7 @@ interface SearchHit {
 }
 
 const POINT_STYLE: Record<PointKey, { color: string; letter: string }> = {
-  location: { color: '#0f1b2d', letter: '🏢' },
+  location: { color: '#1f2023', letter: 'B' },
   entrance: { color: '#1f6fd1', letter: 'E' },
   pickup: { color: '#16a34a', letter: 'P' },
   dropoff: { color: '#ea580c', letter: 'D' },
@@ -348,6 +349,14 @@ export function MapManager({ initialSelect }: { initialSelect: number | null }) 
           )}
           {modeText && <div className="map-mode">{modeText}</div>}
         </div>
+        <div className="map-legend">
+          <span>
+            <i className="dot-legend" style={{ background: '#f59e0b' }} /> {L_('شوارع اللعبة', 'Game roads')}
+          </span>
+          <span>
+            <i className="dot-legend" style={{ background: '#1f6fd1', borderRadius: 0, height: 2 }} /> {L_('حدود منطقة اللعب', 'Playable area')}
+          </span>
+        </div>
         {cursor && (
           <div className="map-coords" dir="ltr" data-testid="cursor-coords">
             {cursor.lat.toFixed(6)}, {cursor.lng.toFixed(6)}
@@ -383,7 +392,7 @@ export function MapManager({ initialSelect }: { initialSelect: number | null }) 
                   }}
                   data-testid="add-merchant"
                 >
-                  {placing ? L_('إلغاء', 'Cancel') : `＋ ${L_('إضافة نشاط', 'Add business')}`}
+                  {placing ? L_('إلغاء', 'Cancel') : <><Icon name="plus" size={15} /> {L_('إضافة نشاط', 'Add business')}</>}
                 </button>
               </div>
               <div className="a-grid" style={{ marginTop: 10, gridTemplateColumns: 'repeat(2, 1fr)' }}>
@@ -430,16 +439,16 @@ export function MapManager({ initialSelect }: { initialSelect: number | null }) 
                 {selectedMerchant.sponsorship && (
                   <div style={{ marginTop: 6 }}>
                     <span className="a-badge gold">
-                      ★ {pick(selectedMerchant.sponsorship.package_name_ar, selectedMerchant.sponsorship.package_name_en)} · {selectedMerchant.sponsorship.ends_on}
+                      <Icon name="star" size={12} /> {pick(selectedMerchant.sponsorship.package_name_ar, selectedMerchant.sponsorship.package_name_en)} · {selectedMerchant.sponsorship.ends_on}
                     </span>
                   </div>
                 )}
                 <div className="a-row" style={{ marginTop: 10 }}>
                   <button className="a-btn primary" onClick={() => startEdit(selectedMerchant)} data-testid="edit-merchant">
-                    ✎ {L_('تعديل / نقل', 'Edit / move')}
+                    <Icon name="edit" size={15} /> {L_('تعديل / نقل', 'Edit / move')}
                   </button>
                   <a className="a-btn" href={`/?focus=${selectedMerchant.id}`} target="_blank" rel="noreferrer">
-                    🎮 {L_('عرض في اللعبة', 'View in game')}
+                    <Icon name="gamepad" size={15} /> {L_('عرض في اللعبة', 'View in game')}
                   </a>
                 </div>
               </div>
@@ -462,7 +471,7 @@ export function MapManager({ initialSelect }: { initialSelect: number | null }) 
                       {pick(m.category?.name_ar, m.category?.name_en)}
                     </span>
                   </span>
-                  {m.sponsorship && <span className="a-badge gold">★</span>}
+                  {m.sponsorship && <span className="a-badge gold"><Icon name="star" size={12} /></span>}
                   <StatusBadge status={m.status} />
                 </button>
               ))}

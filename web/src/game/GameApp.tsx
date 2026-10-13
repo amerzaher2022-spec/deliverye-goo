@@ -5,6 +5,8 @@ import { buildRoadGraph } from '../../../shared/roads';
 import { VEHICLE_SPECS } from '../../../shared/rules';
 import { VEHICLES, type Category, type DistrictData, type Merchant, type Mission, type MissionRun, type PlayerProfile, type SponsorshipPackage, type VehicleId } from '../../../shared/types';
 import { ApiError, api } from '../api';
+import { Coin, Icon } from '../icons';
+import '../styles/game.css';
 import { useI18n } from '../i18n';
 import { TouchControls } from './Controls';
 import { Engine, type CameraMode, type HudState } from './engine';
@@ -25,13 +27,15 @@ interface WorldPayload {
 
 interface Settings {
   quality: Quality;
+  /** false once the player picks a quality by hand */
+  autoQuality: boolean;
   controls: 'buttons' | 'joystick';
   camera: CameraMode;
 }
 
 function loadSettings(): Settings {
   const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-  const def: Settings = { quality: coarse ? 'medium' : 'high', controls: 'buttons', camera: 'chase' };
+  const def: Settings = { quality: coarse ? 'medium' : 'high', autoQuality: true, controls: 'buttons', camera: 'chase' };
   try {
     return { ...def, ...JSON.parse(localStorage.getItem('dg.settings') ?? '{}') };
   } catch {
@@ -149,13 +153,19 @@ export default function GameApp() {
             .post<{ discovered: boolean; newAchievements: string[] }>('/api/player/discover', { merchant_id: id, x: pos.x, y: pos.y })
             .then((r) => {
               const m = worldRef.current?.merchants.find((x) => x.id === id);
-              if (r.discovered && m) toast(`🔎 ${t('discovered')}: ${pick(m.name_ar, m.name_en)}`);
+              if (r.discovered && m) toast(`${t('discovered')}: ${pick(m.name_ar, m.name_en)}`);
               if (r.newAchievements.length) void refreshPlayer();
             })
             .catch(() => {});
         },
         onTapMerchant: (id) => setOverlay({ kind: 'card', id }),
-        onBump: () => toast(lang === 'ar' ? '⚠️ انتبه! الطلبية هشة' : '⚠️ Careful! The order is fragile'),
+        onBump: () => toast(lang === 'ar' ? 'انتبه — الطلبية هشة' : 'Careful — the order is fragile'),
+        onSlow: (q) => setSettingsState((s) => {
+          if (!s.autoQuality || s.quality === q) return s;
+          const next = { ...s, quality: q };
+          saveSettings(next);
+          return next;
+        }),
       },
     );
     engineRef.current = engine;
@@ -183,8 +193,21 @@ export default function GameApp() {
 
   useEffect(() => engineRef.current?.setQuality(settings.quality), [settings.quality]);
   useEffect(() => {
+    if (engineRef.current) engineRef.current.adaptive = settings.autoQuality;
+  }, [settings.autoQuality, world]);
+  useEffect(() => {
     engineRef.current?.setCameraMode(screen === 'menu' ? 'showcase' : settings.camera);
   }, [screen, settings.camera]);
+  // keep the vehicle clear of the menu panel: beside it on wide screens, above it on narrow ones
+  useEffect(() => {
+    const place = () => {
+      const narrow = window.innerWidth <= 760;
+      engineRef.current?.setShowcaseOffset(narrow ? 0 : lang === 'ar' ? 1.6 : -1.6, narrow ? -1.7 : 0);
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [lang, world !== null, player !== null]);
   useEffect(() => {
     const paused = screen === 'play' && (overlay.kind === 'pause' || overlay.kind === 'settings');
     engineRef.current?.setPaused(paused);
@@ -218,7 +241,7 @@ export default function GameApp() {
       setWorld((prev) => (prev ? { ...w, district: prev.district } : w));
       engineRef.current?.setMerchants(w.merchants);
       setMissions(await api.get<Mission[]>('/api/player/missions'));
-      if (announce) toast(`🔄 ${t('worldUpdated')}`);
+      if (announce) toast(t('worldUpdated'));
     },
     [t, toast],
   );
@@ -269,8 +292,8 @@ export default function GameApp() {
       setDialog({
         lines: [
           lang === 'ar'
-            ? `طلب جديد: ${m.title_ar}. اذهب إلى ${origin?.name_ar ?? ''} واستلم الطلبية. اتبع الخط الأزرق!`
-            : `New job: ${m.title_en}. Head to ${origin?.name_en ?? ''} to collect it. Follow the blue line!`,
+            ? `طلب جديد: ${m.title_ar}. اذهب إلى ${origin?.name_ar ?? ''} واستلم الطلبية. اتبع خط المسار على الطريق.`
+            : `New job: ${m.title_en}. Head to ${origin?.name_en ?? ''} to collect it. Follow the route line on the road.`,
         ],
         i: 0,
       });
@@ -348,9 +371,10 @@ export default function GameApp() {
   // ---- render ----------------------------------------------------------------
   if (error) {
     return (
-      <div className="game" style={{ display: 'grid', placeItems: 'center', background: 'var(--ink)' }}>
-        <div className="sheet" style={{ textAlign: 'center' }}>
-          <h2>{t('offlineError')}</h2>
+      <div className="game" style={{ display: 'grid', placeItems: 'center', background: 'var(--charcoal)' }}>
+        <div className="sheet" style={{ textAlign: 'center', padding: 24 }}>
+          <Icon name="alert" size={28} style={{ color: 'var(--amber-hi)' }} />
+          <h2 style={{ fontSize: '1.1rem' }}>{t('offlineError')}</h2>
           <p className="muted small">{error}</p>
           <button className="btn primary" onClick={() => void load()}>
             {t('retry')}
@@ -368,46 +392,64 @@ export default function GameApp() {
   const nearMerchant = hud?.nearMerchantId ? merchantMap.get(hud.nearMerchantId) : undefined;
   const spec = VEHICLE_SPECS[menuVehicle];
   const vehicleLocked = player ? !player.unlocked_vehicles.includes(menuVehicle) : false;
+  const vehicleClass: Record<VehicleId, [string, string]> = {
+    bicycle: ['دراجة توصيل خفيفة', 'Light courier bicycle'],
+    motorcycle: ['دراجة نارية 125cc', '125cc delivery scooter'],
+    car: ['سيارة هاتشباك للتوصيل', 'Delivery hatchback'],
+  };
+  const stepVehicle = (dir: 1 | -1) => void chooseVehicle(VEHICLES[(VEHICLES.indexOf(menuVehicle) + VEHICLES.length + dir) % VEHICLES.length]!);
+  const originName = mission ? pick(merchantMap.get(mission.origin_merchant_id)?.name_ar, merchantMap.get(mission.origin_merchant_id)?.name_en) : '';
 
   return (
     <div className="game">
       <canvas ref={canvasRef} className="scene" data-testid="game-canvas" />
       {!world && (
-        <div className="overlay" style={{ background: 'var(--ink)' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div className="title-block">
-              <h1>{t('appName')}</h1>
+        <div className="loading-screen">
+          <div>
+            <div className="brand" style={{ justifyContent: 'center' }}>
+              <span className="brand-mark">
+                <Icon name="package" size={18} />
+              </span>
+              {t('appName')}
             </div>
-            <p className="muted">{t('loadingWorld')}</p>
+            <div className="bar">
+              <i />
+            </div>
+            <p className="small faint" style={{ marginTop: 12 }}>
+              {t('loadingWorld')}
+            </p>
           </div>
         </div>
       )}
 
       {world && player && screen === 'menu' && (
         <div className="menu" data-testid="main-menu">
-          <div className="menu-head">
-            <div className="title-block">
+          <div className="menu-col">
+            <div className="brand">
+              <span className="brand-mark">
+                <Icon name="package" size={18} />
+              </span>
+              {lang === 'ar' ? 'Erbil Delivery World' : 'عالم توصيل أربيل'}
+            </div>
+            <div>
               <h1>{t('appName')}</h1>
-              <p>{t('tagline')}</p>
+              <p className="lede">{t('tagline')}</p>
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button className="btn" onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')} data-testid="lang-toggle">
-                {lang === 'ar' ? 'English' : 'العربية'}
-              </button>
-              <button className="icon-btn" onClick={() => setOverlay({ kind: 'settings' })} aria-label={t('settings')}>
-                ⚙️
-              </button>
-            </div>
-          </div>
-          <div className="vehicle-pick">
-            <button className="arrow-btn" onClick={() => void chooseVehicle(VEHICLES[(VEHICLES.indexOf(menuVehicle) + VEHICLES.length - 1) % VEHICLES.length]!)} aria-label="previous">
-              ‹
-            </button>
-            <div className="panel vehicle-card" data-testid="vehicle-card">
-              <div className="small muted">{t('vehicle')}</div>
-              <div className="name">{pick(spec.name_ar, spec.name_en)}</div>
-              {vehicleLocked && <div className="chip red">🔒 {t('unlocksAtLevel', { n: spec.unlockLevel })}</div>}
-              <div className="stat-bars">
+
+            <div className="panel vehicle-panel" data-testid="vehicle-card">
+              <div className="head">
+                <div style={{ flex: 1 }}>
+                  <div className="cls">{pick(...vehicleClass[menuVehicle])}</div>
+                  <div className="name">{pick(spec.name_ar, spec.name_en)}</div>
+                </div>
+                <button className="icon-btn" onClick={() => stepVehicle(lang === 'ar' ? 1 : -1)} aria-label="previous">
+                  <Icon name="chevronLeft" size={18} />
+                </button>
+                <button className="icon-btn" onClick={() => stepVehicle(lang === 'ar' ? -1 : 1)} aria-label="next">
+                  <Icon name="chevronRight" size={18} />
+                </button>
+              </div>
+              <div className="specs">
                 <span>{t('topSpeed')}</span>
                 <span className="bar">
                   <i style={{ width: `${(spec.maxSpeed / 26) * 100}%` }} />
@@ -421,45 +463,63 @@ export default function GameApp() {
                   <i style={{ width: `${(spec.steering / 2.8) * 100}%` }} />
                 </span>
               </div>
-            </div>
-            <button className="arrow-btn" onClick={() => void chooseVehicle(VEHICLES[(VEHICLES.indexOf(menuVehicle) + 1) % VEHICLES.length]!)} aria-label="next">
-              ›
-            </button>
-          </div>
-          <div className="menu-foot">
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div className="menu-links">
-                <button className="btn" onClick={() => setOverlay({ kind: 'progress', tab: 'challenges' })}>
-                  🎯 {t('dailyChallenges')}
-                </button>
-                <button className="btn" onClick={() => setOverlay({ kind: 'progress', tab: 'history' })}>
-                  📜 {t('history')}
-                </button>
-                <button className="btn" onClick={() => setOverlay({ kind: 'progress', tab: 'achievements' })}>
-                  🏅 {t('achievements')}
-                </button>
-                <button className="btn" onClick={() => setOverlay({ kind: 'directory' })} data-testid="open-directory">
-                  🏪 {t('businesses')}
-                </button>
-                <button className="btn" onClick={() => setOverlay({ kind: 'packages' })}>
-                  📣 {t('advertise')}
-                </button>
-                <a className="btn ghost" href="/admin" style={{ textDecoration: 'none' }}>
-                  🛠 {t('dashboard')}
-                </a>
+              <div className="row-between" style={{ marginTop: 12 }}>
+                <div className="vehicle-dots">
+                  {VEHICLES.map((v) => (
+                    <i key={v} className={v === menuVehicle ? 'on' : ''} />
+                  ))}
+                </div>
+                {vehicleLocked && (
+                  <span className="chip">
+                    {t('locked')} · {t('unlocksAtLevel', { n: spec.unlockLevel })}
+                  </span>
+                )}
               </div>
-              <div className="notice">{t('demoNotice')}</div>
             </div>
-            <button
-              className="btn primary start-btn"
-              disabled={vehicleLocked}
-              onClick={() => {
-                engineRef.current?.setVehicle(menuVehicle);
-                startPlaying();
-              }}
-              data-testid="start"
-            >
-              {run ? t('resume') : t('play')} ▶
+
+            <div className="menu-actions">
+              <button
+                className="btn primary lg"
+                style={{ flex: 1 }}
+                disabled={vehicleLocked}
+                onClick={() => {
+                  engineRef.current?.setVehicle(menuVehicle);
+                  startPlaying();
+                }}
+                data-testid="start"
+              >
+                <Icon name="play" size={16} /> {run ? t('resume') : t('play')}
+              </button>
+            </div>
+
+            <div className="menu-links">
+              <button className="btn" onClick={() => setOverlay({ kind: 'progress', tab: 'challenges' })}>
+                <Icon name="target" size={17} /> {t('dailyChallenges')}
+              </button>
+              <button className="btn" onClick={() => setOverlay({ kind: 'progress', tab: 'history' })}>
+                <Icon name="history" size={17} /> {t('history')}
+              </button>
+              <button className="btn" onClick={() => setOverlay({ kind: 'progress', tab: 'achievements' })}>
+                <Icon name="trophy" size={17} /> {t('achievements')}
+              </button>
+              <button className="btn" onClick={() => setOverlay({ kind: 'directory' })} data-testid="open-directory">
+                <Icon name="store" size={17} /> {t('businesses')}
+              </button>
+              <button className="btn" onClick={() => setOverlay({ kind: 'packages' })}>
+                <Icon name="megaphone" size={17} /> {t('advertise')}
+              </button>
+              <a className="btn" href="/admin">
+                <Icon name="dashboard" size={17} /> {t('dashboard')}
+              </a>
+            </div>
+            <div className="fineprint">{t('demoNotice')}</div>
+          </div>
+          <div className="menu-top-right">
+            <button className="btn" onClick={() => setLang(lang === 'ar' ? 'en' : 'ar')} data-testid="lang-toggle" style={{ background: 'var(--surface)' }}>
+              <Icon name="globe" size={16} /> {lang === 'ar' ? 'English' : 'العربية'}
+            </button>
+            <button className="icon-btn" onClick={() => setOverlay({ kind: 'settings' })} aria-label={t('settings')}>
+              <Icon name="settings" size={18} />
             </button>
           </div>
         </div>
@@ -468,51 +528,66 @@ export default function GameApp() {
       {world && player && screen === 'play' && (
         <>
           <div className="hud-top">
-            <div className="panel stats" data-testid="stats">
-              <div className="row">
-                <span>
-                  {t('level')} {player.level}
+            <div className="panel status-bar" data-testid="stats">
+              <span className="lvl num" title={t('level')}>
+                {player.level}
+              </span>
+              <span className="xp">
+                <small className="num">
+                  {t('level')} {player.level} · {player.xp - player.xp_level_start}/{xpSpan} {t('xp')}
+                </small>
+                <span className="bar">
+                  <i style={{ width: `${((player.xp - player.xp_level_start) / xpSpan) * 100}%` }} />
                 </span>
-                <span>🪙 {fmtNumber(player.coins)}</span>
-              </div>
-              <div className="xpbar">
-                <i style={{ width: `${((player.xp - player.xp_level_start) / xpSpan) * 100}%` }} />
-              </div>
-              <button className="btn" style={{ padding: '4px 8px', fontSize: '0.85rem' }} onClick={() => setOverlay({ kind: 'board' })} data-testid="open-board">
-                📋 {t('missionBoard')} ({missions.length})
-              </button>
+              </span>
+              <span className="balance">
+                <Coin size={15} /> {fmtNumber(player.coins)}
+              </span>
             </div>
             <div className="hud-actions">
+              <button className="icon-btn" aria-label={t('missionBoard')} onClick={() => setOverlay({ kind: 'board' })} data-testid="open-board">
+                <Icon name="list" size={19} />
+              </button>
               <button className="icon-btn" aria-label={t('businesses')} onClick={() => setOverlay({ kind: 'directory' })}>
-                🏪
+                <Icon name="store" size={19} />
               </button>
               <button
                 className="icon-btn"
                 aria-label={t('camera')}
                 onClick={() => setSettings({ camera: settings.camera === 'chase' ? 'rider' : settings.camera === 'rider' ? 'far' : 'chase' })}
               >
-                🎥
+                <Icon name="camera" size={19} />
               </button>
               <button className="icon-btn" aria-label={t('menu')} onClick={() => setOverlay({ kind: 'pause' })} data-testid="pause">
-                ⏸
+                <Icon name="pause" size={19} />
               </button>
             </div>
           </div>
 
-          {hud && (
-            <Minimap graph={graph} district={world.district} merchants={world.merchants} featured={featured} hud={hud} onOpen={() => setOverlay({ kind: 'map' })} />
-          )}
+          {hud && <Minimap graph={graph} district={world.district} merchants={world.merchants} featured={featured} hud={hud} onOpen={() => setOverlay({ kind: 'map' })} />}
 
           {run && mission && (
-            <div className="panel mission-pill" data-testid="mission-pill" data-status={run.status}>
-              <div className="title">
-                {toPickup ? '📦' : '📍'} {toPickup ? t('goToPickup') : t('goToDropoff')}:{' '}
-                {toPickup ? pick(merchantMap.get(mission.origin_merchant_id)?.name_ar, merchantMap.get(mission.origin_merchant_id)?.name_en) : pick(mission.destination_label_ar, mission.destination_label_en)}
+            <div className="panel mission-card" data-testid="mission-pill" data-status={run.status}>
+              <div className="steps">
+                <span className={toPickup ? 'on-text' : ''}>{t('goToPickup')}</span>
+                <span className={`seg on`} />
+                <span className={`seg ${toPickup ? '' : 'on'}`} />
+                <span className={!toPickup ? 'on-text' : ''}>{t('goToDropoff')}</span>
               </div>
-              <div className="sub">
-                {hud?.routeRemaining != null && <span>{fmtDistance(hud.routeRemaining, lang)}</span>}
-                {remaining !== null && <span className={`timer ${remaining <= 0 ? 'late' : ''}`}>⏱ {remaining > 0 ? fmtClock(remaining) : t('timeUp')}</span>}
-                <span>+{mission.reward_coins} 🪙</span>
+              <div className="dest">
+                <Icon name={toPickup ? 'package' : 'flag'} size={17} style={{ color: 'var(--amber-hi)', flex: 'none' }} />
+                <span>{toPickup ? originName : pick(mission.destination_label_ar, mission.destination_label_en)}</span>
+              </div>
+              <div className="meta">
+                {hud?.routeRemaining != null && (
+                  <span>
+                    <b>{fmtDistance(hud.routeRemaining, lang)}</b>
+                  </span>
+                )}
+                {remaining !== null && <span className={`timer ${remaining <= 0 ? 'late' : ''}`}>{remaining > 0 ? fmtClock(remaining) : t('timeUp')}</span>}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginInlineStart: 'auto' }}>
+                  <Coin size={12} /> {mission.reward_coins}
+                </span>
               </div>
             </div>
           )}
@@ -526,38 +601,43 @@ export default function GameApp() {
           </div>
 
           <div className="context-action">
-            {hud?.zone === 'pickup' && (() => {
-              const origin = mission ? merchantMap.get(mission.origin_merchant_id) : undefined;
-              const inside = origin?.interior_enabled || mission?.type === 'interior_pickup';
-              return inside && origin ? (
-                <button className="btn primary" onClick={() => setOverlay({ kind: 'interior', id: origin.id })} disabled={busy} data-testid="collect">
-                  🚪 {lang === 'ar' ? 'ادخل واستلم' : 'Go inside & collect'}
-                </button>
-              ) : (
-                <button className="btn primary" onClick={() => void collect()} disabled={busy} data-testid="collect">
-                  🤲 {t('collect')}
-                </button>
-              );
-            })()}
+            {hud?.zone === 'pickup' &&
+              (() => {
+                const origin = mission ? merchantMap.get(mission.origin_merchant_id) : undefined;
+                const inside = origin?.interior_enabled || mission?.type === 'interior_pickup';
+                return inside && origin ? (
+                  <button className="btn primary" onClick={() => setOverlay({ kind: 'interior', id: origin.id })} disabled={busy} data-testid="collect">
+                    <Icon name="door" size={18} /> {lang === 'ar' ? 'ادخل واستلم الطلب' : 'Go inside & collect'}
+                  </button>
+                ) : (
+                  <button className="btn primary" onClick={() => void collect()} disabled={busy} data-testid="collect">
+                    <Icon name="hand" size={18} /> {t('collect')}
+                  </button>
+                );
+              })()}
             {hud?.zone === 'dropoff' && (
-              <button className="btn good" onClick={() => void deliver()} disabled={busy} data-testid="deliver">
-                ✅ {t('deliver')}
+              <button className="btn primary" onClick={() => void deliver()} disabled={busy} data-testid="deliver">
+                <Icon name="check" size={18} /> {t('deliver')}
               </button>
             )}
             {!hud?.zone && nearMerchant && (
-              <button className="btn" onClick={() => setOverlay({ kind: 'card', id: nearMerchant.id })} data-testid="near-merchant">
-                ℹ️ {t('details')}: {pick(nearMerchant.name_ar, nearMerchant.name_en)}
+              <button className="btn" style={{ background: 'var(--surface)' }} onClick={() => setOverlay({ kind: 'card', id: nearMerchant.id })} data-testid="near-merchant">
+                <Icon name="info" size={17} /> {pick(nearMerchant.name_ar, nearMerchant.name_en)}
               </button>
             )}
           </div>
 
           <div className="panel speedo" dir="ltr">
             <b data-testid="speed">{Math.round(hud?.speedKmh ?? 0)}</b>
-            <span>{t('kmh')}</span>
+            <span>{lang === 'ar' ? 'كم/س' : 'KM/H'}</span>
           </div>
 
           <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} />
-          {portrait && <div className="panel rotate-hint">📱↻ {t('rotateHint')}</div>}
+          {portrait && (
+            <div className="panel rotate-hint">
+              <Icon name="reset" size={14} /> {t('rotateHint')}
+            </div>
+          )}
         </>
       )}
 
@@ -599,7 +679,7 @@ export default function GameApp() {
       )}
       {world && overlay.kind === 'map' && (
         <FullMap
-          title={`🗺 ${t('map')} · ${pick(world.district.name_ar, world.district.name_en)}`}
+          title={`${t('map')} · ${pick(world.district.name_ar, world.district.name_en)}`}
           graph={graph}
           district={world.district}
           merchants={world.merchants}
@@ -610,20 +690,20 @@ export default function GameApp() {
         />
       )}
       {overlay.kind === 'pause' && (
-        <Sheet title={`⏸ ${t('paused')}`} onClose={() => setOverlay({ kind: 'none' })}>
+        <Sheet title={t('paused')} icon="pause" onClose={() => setOverlay({ kind: 'none' })}>
           <div className="list">
             <button className="btn primary" onClick={() => setOverlay({ kind: 'none' })}>
-              ▶ {t('resume')}
+              <Icon name="play" size={14} /> {t('resume')}
             </button>
             <button className="btn" onClick={() => setOverlay({ kind: 'settings' })}>
-              ⚙️ {t('settings')}
+              <Icon name="settings" size={17} /> {t('settings')}
             </button>
             <button className="btn" onClick={() => setOverlay({ kind: 'progress' })}>
-              📜 {t('history')} / 🏅 {t('achievements')}
+              <Icon name="history" size={17} /> {t('history')} · {t('achievements')}
             </button>
             {run && (
               <button className="btn danger" onClick={() => void cancelRun()} data-testid="cancel-run">
-                ✕ {t('cancelMission')}
+                <Icon name="close" size={17} /> {t('cancelMission')}
               </button>
             )}
             <button
@@ -633,18 +713,18 @@ export default function GameApp() {
                 setOverlay({ kind: 'none' });
               }}
             >
-              🏠 {t('mainMenu')}
+              <Icon name="chevronLeft" size={17} /> {t('mainMenu')}
             </button>
             <a className="btn ghost" href="/admin" style={{ textAlign: 'center', textDecoration: 'none' }}>
-              🛠 {t('dashboard')}
+              <Icon name="dashboard" size={17} /> {t('dashboard')}
             </a>
           </div>
         </Sheet>
       )}
       {overlay.kind === 'settings' && (
-        <Sheet title={`⚙️ ${t('settings')}`} onClose={() => setOverlay(screen === 'play' ? { kind: 'pause' } : { kind: 'none' })}>
+        <Sheet title={t('settings')} icon="settings" onClose={() => setOverlay(screen === 'play' ? { kind: 'pause' } : { kind: 'none' })}>
           <h3>{t('language')}</h3>
-          <div className="tabs">
+          <div className="seg-tabs">
             <button className={lang === 'ar' ? 'on' : ''} onClick={() => setLang('ar')}>
               العربية
             </button>
@@ -653,15 +733,18 @@ export default function GameApp() {
             </button>
           </div>
           <h3>{t('graphics')}</h3>
-          <div className="tabs">
+          <div className="seg-tabs">
+            <button className={settings.autoQuality ? 'on' : ''} onClick={() => setSettings({ autoQuality: true })}>
+              {lang === 'ar' ? 'تلقائي' : 'Auto'}
+            </button>
             {(['low', 'medium', 'high'] as const).map((q) => (
-              <button key={q} className={settings.quality === q ? 'on' : ''} onClick={() => setSettings({ quality: q })}>
+              <button key={q} className={!settings.autoQuality && settings.quality === q ? 'on' : ''} onClick={() => setSettings({ quality: q, autoQuality: false })}>
                 {t(q)}
               </button>
             ))}
           </div>
           <h3>{t('controls')}</h3>
-          <div className="tabs">
+          <div className="seg-tabs">
             <button className={settings.controls === 'buttons' ? 'on' : ''} onClick={() => setSettings({ controls: 'buttons' })}>
               {t('controlButtons')}
             </button>
@@ -670,10 +753,10 @@ export default function GameApp() {
             </button>
           </div>
           <h3>{t('camera')}</h3>
-          <div className="tabs">
+          <div className="seg-tabs">
             {(['chase', 'rider', 'far'] as const).map((c) => (
               <button key={c} className={settings.camera === c ? 'on' : ''} onClick={() => setSettings({ camera: c })}>
-                {c === 'chase' ? '🎥' : c === 'rider' ? '👀' : '🛰'} {c}
+                {pick({ chase: 'خلفية', rider: 'منظور السائق', far: 'علوية' }[c], { chase: 'Chase', rider: 'Rider view', far: 'Overhead' }[c])}
               </button>
             ))}
           </div>

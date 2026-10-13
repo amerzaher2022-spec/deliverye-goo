@@ -1,0 +1,62 @@
+{
+ "abu-ali": {
+  "bg": "#7a1f1c",
+  "accent": "#e9b46a"
+ },
+ "citadel-cafe": {
+  "bg": "#3a2a20",
+  "accent": "#c8995c"
+ },
+ "pizza-sixty": {
+  "bg": "#1f1f20",
+  "accent": "#d9482b"
+ },
+ "nishtiman": {
+  "bg": "#2e3a28",
+  "accent": "#dea43c"
+ },
+ "hawler-bakery": {
+  "bg": "#efe3cc",
+  "accent": "#a8692e"
+ },
+ "fresh-market": {
+  "bg": "#1e5f36",
+  "accent": "#9fd17a"
+ },
+ "zagros-electronics": {
+  "bg": "#0f2744",
+  "accent": "#4a96e6"
+ },
+ "sirwan-home": {
+  "bg": "#23464a",
+  "accent": "#d8b980"
+ },
+ "shaqlawa-books": {
+  "bg": "#174a46",
+  "accent": "#e2c27a"
+ },
+ "hayat-pharmacy": {
+  "bg": "#f4f6f5",
+  "accent": "#13a399"
+ },
+ "kurdistan-paper": {
+  "bg": "#262626",
+  "accent": "#c79a63"
+ },
+ "hawler-packaging": {
+  "bg": "#4f5a28",
+  "accent": "#d7d08a"
+ },
+ "tigris-logistics": {
+  "bg": "#12233a",
+  "accent": "#2fb5a8"
+ },
+ "cold-storage": {
+  "bg": "#1d4b6e",
+  "accent": "#9fd3f5"
+ },
+ "nawroz-holding": {
+  "bg": "#121212",
+  "accent": "#c9a24a"
+ }
+}

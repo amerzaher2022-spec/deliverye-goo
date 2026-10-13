@@ -3,6 +3,7 @@
 // with correct Arabic shaping in the 3D world.
 
 import * as THREE from 'three';
+import { fitText, paintSign, roundRect, type SignOptions } from '../signPainter';
 
 const loader = new Map<string, Promise<HTMLImageElement | null>>();
 
@@ -25,7 +26,7 @@ export function loadImage(url: string | null): Promise<HTMLImageElement | null> 
 
 export async function fontsReady() {
   try {
-    await Promise.all([document.fonts.load('700 64px Cairo'), document.fonts.load('400 32px Cairo')]);
+    await Promise.all([document.fonts.load('700 64px "IBM Plex Sans Arabic"'), document.fonts.load('600 32px "IBM Plex Sans Arabic"')]);
   } catch {
     /* fall back to system fonts */
   }
@@ -56,35 +57,40 @@ function noise(ctx: CanvasRenderingContext2D, w: number, h: number, alpha: numbe
   }
 }
 
-/** Asphalt with edge lines and lane dashes; v runs along the road (1 unit = `metresPerTile`). */
+/** Asphalt with lane markings; v runs along the road. One tile = road width × 1.2 width. */
 export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local') {
-  const [c, ctx] = canvas(256, 256);
-  ctx.fillStyle = kind === 'local' ? '#4a4d52' : '#3d4045';
-  ctx.fillRect(0, 0, 256, 256);
-  noise(ctx, 256, 256, 0.25, 3500, kind.length);
-  ctx.fillStyle = '#e8e6df';
-  // edge lines
-  ctx.fillRect(10, 0, 4, 256);
-  ctx.fillRect(242, 0, 4, 256);
-  const dash = (x: number, color = '#f1efe8', wdt = 4) => {
+  const W = 512;
+  const [c, ctx] = canvas(W, W);
+  ctx.fillStyle = kind === 'local' ? '#46474a' : '#3b3c3f';
+  ctx.fillRect(0, 0, W, W);
+  noise(ctx, W, W, 0.18, 9000, kind.length);
+  // faint tyre tracks
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  const lanes = kind === 'arterial' ? 6 : kind === 'primary' ? 4 : 2;
+  for (let i = 0; i < lanes; i++) {
+    const x = (W / lanes) * (i + 0.3);
+    ctx.fillRect(x, 0, W / lanes / 8, W);
+    ctx.fillRect(x + W / lanes / 2.6, 0, W / lanes / 8, W);
+  }
+  const paint = 'rgba(238,236,228,0.88)';
+  const line = (x: number, w: number, color = paint, dash?: [number, number]) => {
     ctx.fillStyle = color;
-    ctx.fillRect(x - wdt / 2, 20, wdt, 110);
+    if (!dash) ctx.fillRect(x - w / 2, 0, w, W);
+    else for (let y = 0; y < W; y += dash[0] + dash[1]) ctx.fillRect(x - w / 2, y, w, dash[0]);
   };
+  line(14, 6);
+  line(W - 14, 6);
   if (kind === 'arterial') {
-    // median strip
-    ctx.fillStyle = '#c9b98f';
-    ctx.fillRect(118, 0, 20, 256);
-    ctx.fillStyle = '#d9c400';
-    ctx.fillRect(114, 0, 3, 256);
-    ctx.fillRect(139, 0, 3, 256);
-    for (const x of [46, 82, 174, 210]) dash(x);
+    // centre is covered by the raised median; three lanes each way
+    for (const x of [W * 0.155, W * 0.31, W * 0.69, W * 0.845]) line(x, 5, paint, [96, 160]);
+    line(W * 0.43, 5);
+    line(W * 0.57, 5);
   } else if (kind === 'primary') {
-    ctx.fillStyle = '#d9c400';
-    ctx.fillRect(124, 0, 3, 256);
-    ctx.fillRect(130, 0, 3, 256);
-    for (const x of [66, 190]) dash(x);
+    line(W / 2 - 6, 4, 'rgba(226,182,60,0.9)');
+    line(W / 2 + 6, 4, 'rgba(226,182,60,0.9)');
+    for (const x of [W * 0.26, W * 0.74]) line(x, 5, paint, [96, 160]);
   } else {
-    dash(128, '#f1efe8', 4);
+    line(W / 2, 5, paint, [80, 176]);
   }
   return toTexture(c, { repeat: true, anisotropy: 4 });
 }
@@ -93,16 +99,17 @@ export function groundTexture(color: string, seed: number) {
   const [c, ctx] = canvas(128, 128);
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, 128, 128);
-  noise(ctx, 128, 128, 0.12, 1500, seed);
+  noise(ctx, 128, 128, 0.1, 1500, seed);
   return toTexture(c, { repeat: true, anisotropy: 1 });
 }
 
 export function sidewalkTexture() {
   const [c, ctx] = canvas(128, 128);
-  ctx.fillStyle = '#b9b3a7';
+  ctx.fillStyle = '#c4beb2';
   ctx.fillRect(0, 0, 128, 128);
-  ctx.strokeStyle = 'rgba(80,70,60,0.35)';
-  ctx.lineWidth = 2;
+  noise(ctx, 128, 128, 0.1, 1500, 7);
+  ctx.strokeStyle = 'rgba(70,62,52,0.28)';
+  ctx.lineWidth = 1.5;
   for (let i = 0; i <= 128; i += 32) {
     ctx.beginPath();
     ctx.moveTo(i, 0);
@@ -111,135 +118,126 @@ export function sidewalkTexture() {
     ctx.lineTo(128, i);
     ctx.stroke();
   }
-  noise(ctx, 128, 128, 0.15, 1200, 7);
   return toTexture(c, { repeat: true });
 }
 
-/** Facade with a window grid; repeat it per floor/bay on the material. */
-export function facadeTexture(style: 'glass' | 'stone' | 'industrial') {
-  const [c, ctx] = canvas(128, 128);
-  if (style === 'industrial') {
-    ctx.fillStyle = '#d7d2c8';
-    ctx.fillRect(0, 0, 128, 128);
-    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-    for (let x = 0; x < 128; x += 8) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, 128);
-      ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(40,60,80,0.6)';
-    ctx.fillRect(16, 20, 96, 14);
-  } else {
-    ctx.fillStyle = style === 'glass' ? '#e9edf0' : '#efe6d6';
-    ctx.fillRect(0, 0, 128, 128);
-    noise(ctx, 128, 128, 0.08, 500, style.length);
-    for (let row = 0; row < 2; row++) {
-      for (let col = 0; col < 2; col++) {
-        const x = 14 + col * 64;
-        const y = 16 + row * 64;
-        const g = ctx.createLinearGradient(x, y, x + 36, y + 36);
-        g.addColorStop(0, style === 'glass' ? '#3c6e93' : '#5b7590');
-        g.addColorStop(1, style === 'glass' ? '#9cc3df' : '#a9bccc');
-        ctx.fillStyle = g;
-        ctx.fillRect(x, y, 36, style === 'glass' ? 44 : 34);
-        ctx.fillStyle = 'rgba(255,255,255,0.5)';
-        ctx.fillRect(x, y + (style === 'glass' ? 44 : 34), 36, 3);
-      }
-    }
-  }
-  return toTexture(c, { repeat: true });
-}
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, start: number, weight: number, family: string) {
-  let size = start;
-  do {
-    ctx.font = `${weight} ${size}px ${family}`;
-    if (ctx.measureText(text).width <= maxWidth) break;
-    size -= 2;
-  } while (size > 12);
-  return size;
-}
+export type FacadeStyle = 'plaster' | 'glass' | 'industrial' | 'shopfront';
 
 /**
- * Storefront sign: logo on the left, Arabic name large, English name below.
- * Returns the texture and its aspect ratio (width / height).
+ * Facade tiles. Each tile is one storey high; plaster = two window bays,
+ * glass = one curtain-wall panel, shopfront = one ground-floor unit.
+ * Painted near-white so per-building colour tints come through.
  */
-export function signTexture(opts: {
-  nameAr: string;
-  nameEn: string;
-  color: string;
-  logo: HTMLImageElement | null;
-  sponsored?: boolean;
-}) {
-  const W = 1024;
-  const H = 256;
-  const [c, ctx] = canvas(W, H);
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, opts.color);
-  g.addColorStop(1, shade(opts.color, -0.35));
-  roundRect(ctx, 4, 4, W - 8, H - 8, 28);
-  ctx.fillStyle = g;
-  ctx.fill();
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = opts.sponsored ? '#ffd23f' : 'rgba(255,255,255,0.65)';
-  ctx.stroke();
-
-  const logoSize = H - 56;
-  roundRect(ctx, 28, 28, logoSize, logoSize, 26);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  if (opts.logo) {
-    ctx.save();
-    roundRect(ctx, 34, 34, logoSize - 12, logoSize - 12, 22);
-    ctx.clip();
-    const s = Math.min((logoSize - 12) / opts.logo.width, (logoSize - 12) / opts.logo.height);
-    const lw = opts.logo.width * s;
-    const lh = opts.logo.height * s;
-    ctx.drawImage(opts.logo, 34 + (logoSize - 12 - lw) / 2, 34 + (logoSize - 12 - lh) / 2, lw, lh);
-    ctx.restore();
+export function facadeTexture(style: FacadeStyle) {
+  if (style === 'glass') {
+    const [c, ctx] = canvas(128, 128);
+    const g = ctx.createLinearGradient(0, 0, 128, 128);
+    g.addColorStop(0, '#34495a');
+    g.addColorStop(0.55, '#6d8597');
+    g.addColorStop(1, '#3c5163');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#2a3036';
+    ctx.fillRect(0, 100, 128, 28); // spandrel
+    ctx.fillStyle = '#a7aeb3';
+    ctx.fillRect(0, 0, 4, 128);
+    ctx.fillRect(124, 0, 4, 128);
+    ctx.fillRect(0, 98, 128, 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(10, 6, 30, 90);
+    return toTexture(c, { repeat: true });
   }
-
-  const textX = 28 + logoSize + 30;
-  const textW = W - textX - 34;
-  ctx.fillStyle = '#ffffff';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,0,0,0.35)';
-  ctx.shadowBlur = 6;
-  ctx.direction = 'rtl';
-  ctx.textAlign = 'right';
-  fitText(ctx, opts.nameAr, textW, 104, 700, 'Cairo, "Noto Kufi Arabic", Tahoma, sans-serif');
-  ctx.fillText(opts.nameAr, W - 34, 96);
-  ctx.direction = 'ltr';
-  ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(255,255,255,0.88)';
-  fitText(ctx, opts.nameEn.toUpperCase(), textW, 52, 700, 'Cairo, Arial, sans-serif');
-  ctx.fillText(opts.nameEn.toUpperCase(), textX, 192);
-  return { texture: toTexture(c, { anisotropy: 8 }), aspect: W / H };
+  if (style === 'industrial') {
+    const [c, ctx] = canvas(128, 128);
+    ctx.fillStyle = '#e9e8e4';
+    ctx.fillRect(0, 0, 128, 128);
+    for (let x = 0; x < 128; x += 8) {
+      ctx.fillStyle = 'rgba(0,0,0,0.07)';
+      ctx.fillRect(x, 0, 3, 128);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(x + 4, 0, 1, 128);
+    }
+    ctx.fillStyle = '#4b5966';
+    ctx.fillRect(0, 14, 128, 16);
+    ctx.fillStyle = '#9aa1a6';
+    for (let x = 0; x < 128; x += 32) ctx.fillRect(x, 14, 2, 16);
+    return toTexture(c, { repeat: true });
+  }
+  if (style === 'shopfront') {
+    const [c, ctx] = canvas(128, 128);
+    ctx.fillStyle = '#d8d4cc';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#2d2f31';
+    ctx.fillRect(4, 8, 120, 26); // sign band
+    const g = ctx.createLinearGradient(0, 40, 0, 128);
+    g.addColorStop(0, '#3b4650');
+    g.addColorStop(1, '#5e5246');
+    ctx.fillStyle = g;
+    ctx.fillRect(8, 40, 112, 88);
+    ctx.fillStyle = '#b8bcbf';
+    ctx.fillRect(8, 40, 112, 3);
+    ctx.fillRect(62, 40, 4, 88);
+    ctx.fillRect(8, 40, 3, 88);
+    ctx.fillRect(117, 40, 3, 88);
+    ctx.fillStyle = 'rgba(255,214,150,0.18)';
+    ctx.fillRect(12, 46, 46, 78);
+    return toTexture(c, { repeat: true });
+  }
+  // plaster: two windows per tile, slab band, occasional AC unit
+  const [c, ctx] = canvas(256, 128);
+  ctx.fillStyle = '#f3efe7';
+  ctx.fillRect(0, 0, 256, 128);
+  noise(ctx, 256, 128, 0.05, 900, 3);
+  ctx.fillStyle = '#ddd5c6';
+  ctx.fillRect(0, 118, 256, 10);
+  for (const [i, x] of [34, 152].entries()) {
+    ctx.fillStyle = '#3a3936';
+    ctx.fillRect(x - 3, 24, 76, 74);
+    const g = ctx.createLinearGradient(x, 26, x + 70, 96);
+    g.addColorStop(0, '#2b3740');
+    g.addColorStop(0.6, '#5a6a75');
+    g.addColorStop(1, '#33404a');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, 27, 70, 68);
+    ctx.fillStyle = '#3a3936';
+    ctx.fillRect(x + 33, 27, 4, 68);
+    ctx.fillStyle = '#e7e1d5';
+    ctx.fillRect(x - 6, 98, 82, 5); // sill
+    if (i === 1) {
+      ctx.fillStyle = '#d9dad7';
+      ctx.fillRect(x + 10, 104, 34, 13); // AC unit
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      for (let k = 0; k < 6; k++) ctx.fillRect(x + 13 + k * 5, 107, 2, 7);
+    }
+  }
+  return toTexture(c, { repeat: true });
 }
 
-/** Floating label sprite (merchant name / "!" markers). */
-export function labelTexture(text: string, bg: string, fg = '#ffffff') {
-  const [c, ctx] = canvas(512, 128);
-  ctx.font = '700 60px Cairo, Tahoma, sans-serif';
-  roundRect(ctx, 4, 14, 504, 100, 50);
-  ctx.fillStyle = bg;
+/** Lightbox sign texture; the painting itself lives in signPainter.ts (shared with the dashboard preview). */
+export function signTexture(opts: SignOptions) {
+  const [c, ctx] = canvas(1024, 256);
+  paintSign(ctx, 1024, 256, opts);
+  return { texture: toTexture(c, { anisotropy: 8 }), aspect: 4 };
+}
+
+/** A round "map pin" badge with the merchant's logo, for sponsored highlight markers. */
+export function pinTexture(logo: HTMLImageElement | null, color: string) {
+  const [c, ctx] = canvas(256, 256);
+  ctx.beginPath();
+  ctx.arc(128, 128, 120, 0, Math.PI * 2);
+  ctx.fillStyle = '#16181b';
   ctx.fill();
-  ctx.fillStyle = fg;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitText(ctx, text, 460, 60, 700, 'Cairo, Tahoma, sans-serif');
-  ctx.fillText(text, 256, 66);
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(128, 128, 92, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.clip();
+  if (logo) ctx.drawImage(logo, 36, 36, 184, 184);
+  ctx.restore();
   return toTexture(c);
 }
 

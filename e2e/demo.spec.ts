@@ -97,6 +97,8 @@ test('investor demo: dashboard to delivery and back', async ({ page, context }) 
   await expect(page.locator('table')).toContainText('طلب من مشويات الشمال');
 
   // 9-14. open the game at the new business and check its card
+  // (low graphics: the CI browser renders with a software GPU)
+  await context.addInitScript(() => localStorage.setItem('dg.settings', JSON.stringify({ quality: 'low', autoQuality: false })));
   const game = await context.newPage();
   await game.goto(`/?debug=1&focus=${grillId}`);
   await game.getByTestId('start').click();

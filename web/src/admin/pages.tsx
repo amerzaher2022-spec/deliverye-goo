@@ -5,7 +5,8 @@ import { MISSION_TYPE_LABELS } from '../../../shared/rules';
 import { BUILDING_TYPES, MISSION_TYPES, type BuildingType, type Category, type GeoPoint, type MissionType, type PackageBenefits, type SponsorshipPackage } from '../../../shared/types';
 import { api } from '../api';
 import { useI18n } from '../i18n';
-import { Field, StatusBadge, addDays, errorsFrom, todayErbil, useAdminData, useL, type AdminMission, type FieldErrors, type SponsorshipRow } from './common';
+import { Icon } from '../icons';
+import { EmptyState, Field, StatusBadge, TableSkeleton, addDays, errorsFrom, todayErbil, useAdminData, useL, type AdminMission, type FieldErrors, type SponsorshipRow } from './common';
 
 function Msg({ msg }: { msg: { kind: 'ok' | 'err' | 'info'; text: string } | null }) {
   return msg ? <div className={`a-alert ${msg.kind}`}>{msg.text}</div> : null;
@@ -18,58 +19,152 @@ export function MerchantsPage({ onEditOnMap }: { onEditOnMap: (id: number) => vo
   const L_ = useL();
   const data = useAdminData();
   const [q, setQ] = useState('');
-  const rows = data.merchants.filter((m) => `${m.name_ar} ${m.name_en} ${m.code}`.toLowerCase().includes(q.toLowerCase()));
+  const [status, setStatus] = useState<'all' | 'active' | 'disabled' | 'archived'>('all');
+  const [category, setCategory] = useState('all');
+  const [view, setView] = useState<'cards' | 'table'>(() => (window.innerWidth < 700 ? 'cards' : 'table'));
+  const rows = data.merchants.filter(
+    (m) =>
+      `${m.name_ar} ${m.name_en} ${m.code}`.toLowerCase().includes(q.toLowerCase()) &&
+      (status === 'all' || m.status === status) &&
+      (category === 'all' || String(m.category_id) === category),
+  );
+  const BUILDING: Record<string, [string, string]> = {
+    restaurant: ['مطعم', 'Restaurant'],
+    shop: ['متجر', 'Shop'],
+    factory: ['مصنع', 'Factory'],
+    warehouse: ['مستودع', 'Warehouse'],
+    office: ['مكتب', 'Office'],
+  };
   return (
-    <div className="a-card">
-      <div className="a-row">
-        <h2 style={{ margin: 0 }}>{L_('الأنشطة التجارية', 'Businesses')}</h2>
-        <span className="a-badge demo">{L_('جميعها وهمية للعرض', 'All fictional demo businesses')}</span>
+    <div>
+      <div className="a-toolbar">
+        <div className="a-search">
+          <Icon name="search" size={15} />
+          <input className="a-input" placeholder={L_('ابحث بالاسم أو الرمز', 'Search by name or code')} value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <select className="a-input" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="category">
+          <option value="all">{L_('كل التصنيفات', 'All categories')}</option>
+          {data.categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {pick(c.name_ar, c.name_en)}
+            </option>
+          ))}
+        </select>
+        <div className="a-seg" role="tablist" aria-label="status">
+          {(['all', 'active', 'disabled', 'archived'] as const).map((s) => (
+            <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>
+              {pick({ all: 'الكل', active: 'فعّال', disabled: 'معطّل', archived: 'مؤرشف' }[s], { all: 'All', active: 'Active', disabled: 'Disabled', archived: 'Archived' }[s])}
+            </button>
+          ))}
+        </div>
         <span className="a-spacer" />
-        <input className="a-input" placeholder={L_('بحث', 'Search')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <span className="a-badge demo">{L_('أنشطة وهمية للعرض', 'Fictional demo businesses')}</span>
+        <div className="a-seg">
+          <button className={view === 'table' ? 'on' : ''} onClick={() => setView('table')} aria-label={L_('جدول', 'Table')}>
+            <Icon name="list" size={15} />
+          </button>
+          <button className={view === 'cards' ? 'on' : ''} onClick={() => setView('cards')} aria-label={L_('بطاقات', 'Cards')}>
+            <Icon name="dashboard" size={15} />
+          </button>
+        </div>
       </div>
-      <div className="a-table-wrap" style={{ marginTop: 10 }}>
-        <table className="a-table">
-          <thead>
-            <tr>
-              <th />
-              <th>{L_('الرمز', 'Code')}</th>
-              <th>{L_('الاسم', 'Name')}</th>
-              <th>{L_('التصنيف', 'Category')}</th>
-              <th>{L_('المبنى', 'Building')}</th>
-              <th>{L_('الرعاية', 'Sponsorship')}</th>
-              <th>{L_('الحالة', 'Status')}</th>
-              <th>{L_('الإحداثيات', 'Coordinates')}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((m) => (
-              <tr key={m.id}>
-                <td>{m.logo_url && <img className="a-logo" src={m.logo_url} alt="" />}</td>
-                <td>{m.code}</td>
-                <td>
-                  <b>{m.name_ar}</b>
-                  <div style={{ color: 'var(--a-muted)' }}>{m.name_en}</div>
-                </td>
-                <td>{pick(m.category?.name_ar, m.category?.name_en)}</td>
-                <td>{m.building_type}</td>
-                <td>{m.sponsorship ? <span className="a-badge gold">★ {pick(m.sponsorship.package_name_ar, m.sponsorship.package_name_en)}</span> : '—'}</td>
-                <td>
+      {!data.loaded ? (
+        <TableSkeleton cols={6} />
+      ) : rows.length === 0 ? (
+        <div className="a-card">
+          <EmptyState title={L_('لا توجد أنشطة مطابقة', 'No matching businesses')}>{L_('غيّر البحث أو المرشحات، أو أضف نشاطاً من الخريطة.', 'Change the search or filters, or add a business from the map.')}</EmptyState>
+        </div>
+      ) : view === 'cards' ? (
+        <div className="biz-grid">
+          {rows.map((m) => (
+            <div key={m.id} className="biz-card">
+              <div className="biz-cover" style={{ backgroundImage: m.cover_url ? `url(${m.cover_url})` : undefined, backgroundColor: m.brand_color }}>
+                {m.logo_url && <img className="a-logo" src={m.logo_url} alt="" />}
+              </div>
+              <div className="biz-body">
+                <div className="a-row" style={{ justifyContent: 'space-between' }}>
+                  <b>{pick(m.name_ar, m.name_en)}</b>
                   <StatusBadge status={m.status} />
-                </td>
-                <td dir="ltr" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                </div>
+                <div className="small" style={{ color: 'var(--muted)' }}>
+                  {pick(m.category?.name_ar, m.category?.name_en)} · {pick(...BUILDING[m.building_type]!)}
+                </div>
+                <div className="small" dir="ltr" style={{ color: 'var(--faint)', fontVariantNumeric: 'tabular-nums', textAlign: 'start' }}>
                   {m.location.lat.toFixed(5)}, {m.location.lng.toFixed(5)}
-                </td>
-                <td>
-                  <button className="a-btn sm" onClick={() => onEditOnMap(m.id)}>
-                    🗺 {L_('على الخريطة', 'On map')}
-                  </button>
-                </td>
+                </div>
+                {m.sponsorship && (
+                  <span className="a-badge gold" style={{ justifySelf: 'start' }}>
+                    <Icon name="star" size={12} /> {pick(m.sponsorship.package_name_ar, m.sponsorship.package_name_en)}
+                  </span>
+                )}
+              </div>
+              <div className="biz-foot">
+                <button className="a-btn sm" onClick={() => onEditOnMap(m.id)}>
+                  <Icon name="edit" size={14} /> {L_('تعديل', 'Edit')}
+                </button>
+                <a className="a-btn sm ghost" href={`/?focus=${m.id}`} target="_blank" rel="noreferrer">
+                  <Icon name="external" size={14} /> {L_('في اللعبة', 'In game')}
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="a-table-wrap">
+          <table className="a-table">
+            <thead>
+              <tr>
+                <th>{L_('النشاط', 'Business')}</th>
+                <th>{L_('التصنيف', 'Category')}</th>
+                <th>{L_('المبنى', 'Building')}</th>
+                <th>{L_('الرعاية', 'Sponsorship')}</th>
+                <th>{L_('الحالة', 'Status')}</th>
+                <th>{L_('الإحداثيات', 'Coordinates')}</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.id}>
+                  <td>
+                    <div className="a-row" style={{ flexWrap: 'nowrap' }}>
+                      {m.logo_url ? <img className="a-logo" src={m.logo_url} alt="" /> : <span className="a-logo" />}
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{pick(m.name_ar, m.name_en)}</div>
+                        <div className="sub">
+                          {pick(m.name_en, m.name_ar)} · {m.code}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>{pick(m.category?.name_ar, m.category?.name_en)}</td>
+                  <td>{pick(...BUILDING[m.building_type]!)}</td>
+                  <td>
+                    {m.sponsorship ? (
+                      <span className="a-badge gold">
+                        <Icon name="star" size={12} /> {pick(m.sponsorship.package_name_ar, m.sponsorship.package_name_en)}
+                      </span>
+                    ) : (
+                      <span className="sub">—</span>
+                    )}
+                  </td>
+                  <td>
+                    <StatusBadge status={m.status} />
+                  </td>
+                  <td className="sub" dir="ltr" style={{ fontVariantNumeric: 'tabular-nums', textAlign: 'start' }}>
+                    {m.location.lat.toFixed(5)}, {m.location.lng.toFixed(5)}
+                  </td>
+                  <td style={{ textAlign: 'end' }}>
+                    <button className="a-btn sm" onClick={() => onEditOnMap(m.id)}>
+                      <Icon name="map" size={14} /> {L_('على الخريطة', 'On map')}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -298,7 +393,7 @@ export function MissionsPage() {
           </div>
           <div className="a-row" style={{ marginTop: 10 }}>
             <button className="a-btn primary" onClick={() => void save()} data-testid="save-mission">
-              💾 {L_('حفظ', 'Save')}
+              <Icon name="check" size={15} /> {L_('حفظ', 'Save')}
             </button>
             <button className="a-btn" onClick={() => setForm(null)}>
               {L_('إلغاء', 'Cancel')}
@@ -334,7 +429,7 @@ export function MissionsPage() {
             }
             data-testid="new-mission"
           >
-            ＋ {L_('مهمة جديدة', 'New mission')}
+            <Icon name="plus" size={15} /> {L_('مهمة جديدة', 'New mission')}
           </button>
         </div>
         <div className="a-table-wrap" style={{ marginTop: 10 }}>
@@ -358,14 +453,14 @@ export function MissionsPage() {
                 <tr key={m.id}>
                   <td>{m.code}</td>
                   <td>
-                    {pick(m.title_ar, m.title_en)} {m.branded && <span className="a-badge gold">★</span>}
+                    {pick(m.title_ar, m.title_en)} {m.branded && <span className="a-badge gold"><Icon name="star" size={12} /></span>}
                   </td>
                   <td>{pick(MISSION_TYPE_LABELS[m.type].ar, MISSION_TYPE_LABELS[m.type].en)}</td>
                   <td>{name(m.origin_merchant_id)}</td>
                   <td>{m.destination_merchant_id ? name(m.destination_merchant_id) : pick(m.destination_label_ar, m.destination_label_en)}</td>
                   <td>{(m.est_distance_m / 1000).toFixed(2)} km</td>
                   <td>
-                    {m.reward_coins} 🪙 · {m.reward_xp} XP
+                    {m.reward_coins} {L_('عملة', 'coins')} · {m.reward_xp} XP
                   </td>
                   <td>{m.delivered}</td>
                   <td>
@@ -373,7 +468,7 @@ export function MissionsPage() {
                   </td>
                   <td>
                     <button className="a-btn sm" onClick={() => edit(m)}>
-                      ✎
+                      <Icon name="edit" size={15} />
                     </button>
                   </td>
                 </tr>
@@ -448,7 +543,7 @@ export function CategoriesPage() {
           </label>
           <div className="a-row" style={{ marginTop: 10 }}>
             <button className="a-btn primary" onClick={() => void save()} data-testid="save-category">
-              💾 {L_('حفظ', 'Save')}
+              <Icon name="check" size={15} /> {L_('حفظ', 'Save')}
             </button>
             <button className="a-btn" onClick={() => setForm(null)}>
               {L_('إلغاء', 'Cancel')}
@@ -461,7 +556,7 @@ export function CategoriesPage() {
           <h2 style={{ margin: 0 }}>{L_('التصنيفات', 'Categories')}</h2>
           <span className="a-spacer" />
           <button className="a-btn primary" onClick={() => setForm(blank)} data-testid="new-category">
-            ＋ {L_('تصنيف جديد', 'New category')}
+            <Icon name="plus" size={15} /> {L_('تصنيف جديد', 'New category')}
           </button>
         </div>
         <table className="a-table" style={{ marginTop: 10 }}>
@@ -487,7 +582,7 @@ export function CategoriesPage() {
                 <td>{data.merchants.filter((m) => m.category_id === c.id).length}</td>
                 <td>
                   <button className="a-btn sm" onClick={() => setForm(c)}>
-                    ✎
+                    <Icon name="edit" size={15} />
                   </button>
                 </td>
               </tr>
@@ -639,12 +734,12 @@ export function PackagesPage() {
                 <input className="a-input" dir="rtl" style={{ flex: 1 }} value={f.ar} onChange={(e) => setForm({ ...form, features: form.features.map((x, k) => (k === i ? { ...x, ar: e.target.value } : x)) })} />
                 <input className="a-input" dir="ltr" style={{ flex: 1 }} value={f.en} onChange={(e) => setForm({ ...form, features: form.features.map((x, k) => (k === i ? { ...x, en: e.target.value } : x)) })} />
                 <button className="a-btn sm danger" onClick={() => setForm({ ...form, features: form.features.filter((_, k) => k !== i) })}>
-                  ✕
+                  <Icon name="close" size={14} />
                 </button>
               </div>
             ))}
             <button className="a-btn sm" style={{ justifySelf: 'start' }} onClick={() => setForm({ ...form, features: [...form.features, { ar: '', en: '' }] })}>
-              ＋ {L_('ميزة', 'Feature')}
+              <Icon name="plus" size={15} /> {L_('ميزة', 'Feature')}
             </button>
           </div>
           <label className="a-check" style={{ marginTop: 8 }}>
@@ -653,7 +748,7 @@ export function PackagesPage() {
           </label>
           <div className="a-row" style={{ marginTop: 10 }}>
             <button className="a-btn primary" onClick={() => void save()} data-testid="save-package">
-              💾 {L_('حفظ', 'Save')}
+              <Icon name="check" size={15} /> {L_('حفظ', 'Save')}
             </button>
             <button className="a-btn" onClick={() => setForm(null)}>
               {L_('إلغاء', 'Cancel')}
@@ -686,7 +781,7 @@ export function PackagesPage() {
             })
           }
         >
-          ＋ {L_('باقة جديدة', 'New package')}
+          <Icon name="plus" size={15} /> {L_('باقة جديدة', 'New package')}
         </button>
       </div>
       <div className="a-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
@@ -710,7 +805,7 @@ export function PackagesPage() {
               {L_('الرعاة الحاليون', 'Current sponsors')}: {data.sponsorships.filter((s) => s.package_id === p.id && s.state === 'active').length}
             </div>
             <button className="a-btn sm" style={{ marginTop: 8 }} onClick={() => setForm(p)} data-testid={`edit-package-${p.slug}`}>
-              ✎ {L_('تعديل', 'Edit')}
+              <Icon name="edit" size={15} /> {L_('تعديل', 'Edit')}
             </button>
           </div>
         ))}
@@ -801,7 +896,7 @@ export function SponsorshipsPage() {
           </div>
           <div className="a-row" style={{ marginTop: 10 }}>
             <button className="a-btn primary" onClick={() => void save()} data-testid="save-sponsorship">
-              💾 {L_('حفظ (عرض فقط)', 'Save (demo only)')}
+              <Icon name="check" size={15} /> {L_('حفظ (عرض فقط)', 'Save (demo only)')}
             </button>
             <button className="a-btn" onClick={() => setForm(null)}>
               {L_('إلغاء', 'Cancel')}
@@ -814,7 +909,7 @@ export function SponsorshipsPage() {
           <h2 style={{ margin: 0 }}>{L_('الرعايات', 'Sponsorships')}</h2>
           <span className="a-spacer" />
           <button className="a-btn primary" onClick={newForm} data-testid="new-sponsorship">
-            ＋ {L_('رعاية جديدة', 'New sponsorship')}
+            <Icon name="plus" size={15} /> {L_('رعاية جديدة', 'New sponsorship')}
           </button>
         </div>
         <div className="a-table-wrap" style={{ marginTop: 10 }}>
@@ -845,7 +940,7 @@ export function SponsorshipsPage() {
                   <td className="small">{s.notes}</td>
                   <td>
                     <button className="a-btn sm" onClick={() => setForm({ id: s.id, merchant_id: s.merchant_id, package_id: s.package_id, starts_on: s.starts_on, ends_on: s.ends_on, status: s.status, notes: s.notes })}>
-                      ✎
+                      <Icon name="edit" size={15} />
                     </button>
                   </td>
                 </tr>
@@ -944,7 +1039,7 @@ export function DemoPage({ enabled }: { enabled: boolean }) {
         }}
         data-testid="reset-demo"
       >
-        ↺ {L_('إعادة الضبط', 'Reset demo')}
+        <Icon name="reset" size={15} /> {L_('إعادة الضبط', 'Reset demo')}
       </button>
     </div>
   );

@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import type { DriveInput } from './vehicle';
 import { useI18n } from '../i18n';
+import { Icon } from '../icons';
 
 /** A button that stays pressed while any pointer holds it (multi-touch safe). */
 function HoldPad({
@@ -95,7 +96,7 @@ function Joystick({ input }: { input: DriveInput }) {
 }
 
 export function TouchControls({ input, mode }: { input: DriveInput; mode: 'buttons' | 'joystick' }) {
-  const { t, lang } = useI18n();
+  const { lang } = useI18n();
   const steer = useRef({ left: false, right: false });
   const applySteer = () => {
     input.steer = (steer.current.right ? 1 : 0) - (steer.current.left ? 1 : 0);
@@ -115,7 +116,7 @@ export function TouchControls({ input, mode }: { input: DriveInput; mode: 'butto
                 applySteer();
               }}
             >
-              ◀
+              <Icon name="chevronLeft" size={30} strokeWidth={2} />
             </HoldPad>
             <HoldPad
               className="steer"
@@ -125,20 +126,23 @@ export function TouchControls({ input, mode }: { input: DriveInput; mode: 'butto
                 applySteer();
               }}
             >
-              ▶
+              <Icon name="chevronRight" size={30} strokeWidth={2} />
             </HoldPad>
           </>
         )}
       </div>
       <div className="ctrl right" dir="ltr">
-        <HoldPad className="brake" label={t('controls')} onChange={(d) => (input.brake = d ? 1 : 0)}>
+        <HoldPad className="brake" label="brake" onChange={(d) => (input.brake = d ? 1 : 0)}>
           <span>
-            ■<small>{lang === 'ar' ? 'فرامل' : 'Brake'}</small>
+            <Icon name="minus" size={26} strokeWidth={2.4} />
+            <span className="lbl">{lang === 'ar' ? 'فرامل' : 'BRAKE'}</span>
           </span>
         </HoldPad>
         <HoldPad className="gas" label="throttle" onChange={(d) => (input.throttle = d ? 1 : 0)}>
           <span>
-            ▲<small>{lang === 'ar' ? 'وقود' : 'Gas'}</small>
+            <Icon name="chevronUp" size={28} strokeWidth={2.2} />
+            <Icon name="chevronUp" size={28} strokeWidth={2.2} style={{ marginTop: -16, opacity: 0.6 }} />
+            <span className="lbl">{lang === 'ar' ? 'وقود' : 'GAS'}</span>
           </span>
         </HoldPad>
       </div>
