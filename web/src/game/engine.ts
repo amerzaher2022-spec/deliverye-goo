@@ -5,17 +5,21 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { toLocal, type LocalPoint } from '../../../shared/geo';
-import { distanceToRoadEdge, findRoute, hasGradeSeparation, roadHeightAt, type RoadGraph, type Route } from '../../../shared/roads';
+import { distanceToRoadEdge, findRoute, nearestOnNetwork, hasGradeSeparation, roadHeightAt, type RoadGraph, type Route } from '../../../shared/roads';
 import { DISCOVERY_RADIUS_M, DROPOFF_RADIUS_M, PICKUP_RADIUS_M } from '../../../shared/rules';
 import type { DistrictData, Merchant, MissionRun, VehicleId } from '../../../shared/types';
 import { disposeOwned } from './assets';
 import { circleVsBox } from './collision';
 import { Crowd, CROWD_SIZE } from './crowd';
 import { MerchantView, merchantFrame, roleFor, targetBeacon } from './merchants';
-import { Vehicle, type DriveInput } from './vehicle';
+import { Vehicle, type DriveInput, type ImpactResult } from './vehicle';
 import { ribbon, v3, World, type Quality } from './world';
 import { Traffic } from './traffic';
 import { PostProcess } from './post';
+import { Atmosphere } from './atmosphere';
+import { GameAudio } from './audio';
+import { NightLights } from './nightlights';
+import { Mirrors } from './mirrors';
 import { sky } from './pbr';
 import { buildLandmarks, buildSigns, landmarkFootprints } from './landmarks';
 
@@ -34,6 +38,12 @@ export interface HudState {
   routeRemaining: number | null;
   route: LocalPoint[] | null;
   target: LocalPoint | null;
+  /** the engine stalled in a crash and needs restarting */
+  engineOff: boolean;
+  /** the bike is lying on its side */
+  fallen: boolean;
+  /** time of day, hours */
+  hour: number;
 }
 
 export interface EngineCallbacks {
@@ -41,6 +51,8 @@ export interface EngineCallbacks {
   onDiscover: (merchantId: number) => void;
   onTapMerchant: (merchantId: number) => void;
   onBump: (speed: number) => void;
+  /** a collision: how hard, whether the bike went down or the engine stalled */
+  onCrash?: (r: ImpactResult) => void;
   /** the player drove through a red light */
   onRedLight?: () => void;
   /** frame rate stayed low: the engine suggests a lower quality level */
@@ -71,7 +83,26 @@ export class Engine {
   private lightAt = 0;
   private crowdKey = '';
   private sun = new THREE.DirectionalLight('#ffe8c7', 2.6);
-  private sky!: THREE.Mesh;
+  private hemi = new THREE.HemisphereLight('#d4e3f2', '#9a8662', 0.95);
+  /** time of day and weather */
+  atmos!: Atmosphere;
+  private nightLights: NightLights | null = null;
+  private headlight: THREE.SpotLight | null = null;
+  readonly audio = new GameAudio();
+  private mirrors: Mirrors | null = null;
+  /** rear-view mirrors on/off and their angle (settings) */
+  mirrorsOn = true;
+  trafficDensity = (() => {
+    try {
+      const d = Number(localStorage.getItem('dg.traffic'));
+      return d > 0 ? d : 1;
+    } catch {
+      return 1;
+    }
+  })();
+  /** distance outside the carriageway at the last frame (kerb strikes) */
+  private prevEdge = -1;
+  private prevBrake = 0;
   private lastFrame = performance.now();
   private elapsed = 0;
   private raf = 0;
@@ -135,7 +166,7 @@ export class Engine {
     }
     pmrem.dispose();
 
-    this.scene.add(new THREE.HemisphereLight('#d4e3f2', '#9a8662', 0.95));
+    this.scene.add(this.hemi);
     this.sun.position.copy(this.sunDir).multiplyScalar(260);
     this.sun.shadow.camera.near = 10;
     this.sun.shadow.camera.far = 500;
@@ -144,8 +175,9 @@ export class Engine {
     this.applyShadowSize();
     this.scene.add(this.sun, this.sun.target);
     this.post = new PostProcess(this.renderer, this.scene, this.camera, this.quality);
-    if (!photoSky) this.buildSky();
-    else this.sky = new THREE.Mesh(new THREE.SphereGeometry(1, 4, 2), new THREE.MeshBasicMaterial({ visible: false }));
+    if (photoSky) photoSky.background.wrapS = THREE.RepeatWrapping;
+    const fog = this.scene.fog as THREE.Fog;
+    this.atmos = new Atmosphere(this.scene, this.quality, this.sun, this.hemi, photoSky ? { texture: photoSky.background, sun: photoSky.sun } : null, { near: fog.near, far: fog.far });
 
     this.routeTex = chevronTexture();
     this.buildWorld(merchants);
@@ -172,6 +204,9 @@ export class Engine {
       this.sun.shadow.map?.dispose();
       this.sun.shadow.map = null;
     }
+    // offset along the surface normal by about one shadow-map texel, or flat walls shadow themselves
+    // in speckles ("acne")
+    this.sun.shadow.normalBias = ((q.shadowSpan * 2) / q.shadowMap) * 1.1;
     const sc = this.sun.shadow.camera;
     sc.left = sc.bottom = -q.shadowSpan;
     sc.right = sc.top = q.shadowSpan;
@@ -189,54 +224,6 @@ export class Engine {
     this.camera.far = q.fog + 50;
     this.camera.updateProjectionMatrix();
   }
-
-  /** Erbil's clear sky: deep blue overhead, pale haze at the horizon, a few soft clouds. */
-  private buildSky() {
-    const W = 1024;
-    const H = 512;
-    const c = document.createElement('canvas');
-    c.width = W;
-    c.height = H;
-    const ctx = c.getContext('2d')!;
-    // equirectangular: v = 0 at the top of the sphere, 0.5 at the horizon
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#2f6fb6');
-    g.addColorStop(0.3, '#5b93cf');
-    g.addColorStop(0.46, '#a9c6e0');
-    g.addColorStop(0.5, '#dfe3e1');
-    g.addColorStop(1, '#d8d3c6');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let k = 0; k < 26; k++) {
-      const cx = rnd() * W;
-      const cy = H * (0.22 + rnd() * 0.24);
-      const n = 6 + Math.floor(rnd() * 8);
-      for (let i = 0; i < n; i++) {
-        const r = 10 + rnd() * 28 * (1 - (cy / H - 0.2));
-        const x = cx + (rnd() - 0.5) * r * 3;
-        const y = cy + (rnd() - 0.5) * r * 0.6;
-        for (const xx of [x - W, x, x + W]) {
-          const rg = ctx.createRadialGradient(xx, y, 0, xx, y, r);
-          rg.addColorStop(0, 'rgba(255,255,255,0.55)');
-          rg.addColorStop(1, 'rgba(255,255,255,0)');
-          ctx.fillStyle = rg;
-          ctx.beginPath();
-          ctx.ellipse(xx, y, r, r * 0.55, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    }
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const geo = new THREE.SphereGeometry(1, 32, 16);
-    this.sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false, toneMapped: false }));
-    this.sky.renderOrder = -1;
-    this.scene.add(this.sky);
-  }
-
-
 
   private buildWorld(merchants: Merchant[]) {
     if (this.world) {
@@ -260,13 +247,15 @@ export class Engine {
     const lm = buildLandmarks(this.district, this.graph, this.quality);
     this.world.group.add(lm.group);
     for (const b of lm.boxes) this.world.grid.add(b);
-    const signs = buildSigns(this.district, this.graph, this.world.buildings, this.quality);
+    const signs = buildSigns(this.district, this.world.signFaces, this.quality);
     if (signs) this.world.group.add(signs);
+    this.nightLights = new NightLights(this.world.lampLights, this.quality);
+    this.world.group.add(this.nightLights.group);
     if (this.traffic) {
       this.scene.remove(this.traffic.group);
       disposeTree(this.traffic.group);
     }
-    this.traffic = new Traffic(this.graph, this.district, this.quality);
+    this.traffic = new Traffic(this.graph, this.district, this.quality, this.trafficDensity);
     this.graded = hasGradeSeparation(this.graph);
     this.scene.add(this.traffic.group);
     this.setMerchants(merchants);
@@ -328,14 +317,84 @@ export class Engine {
     this.vehicle.sync();
     this.scene.add(this.vehicle.object);
     this.vehicle.object.traverse((o) => (o.castShadow = true));
+    this.audio.setVehicle(id === 'car' ? 'car' : id === 'motorcycle' ? 'scooter' : 'bicycle');
+    this.mountMirrors();
+    // headlamp: one real light that follows the player (none at low quality)
+    this.headlight = null;
+    if (this.quality !== 'low') {
+      const car = id === 'car';
+      const hl = new THREE.SpotLight('#fff1dc', 0, car ? 80 : 60, car ? 0.5 : 0.42, 0.6, 1.3);
+      hl.position.set(0, car ? 0.75 : 1.05, car ? 2.0 : 0.85);
+      hl.target.position.set(0, 0, 32);
+      this.vehicle.object.add(hl, hl.target);
+      this.headlight = hl;
+    }
+  }
+
+  private mountMirrors() {
+    this.mirrors?.dispose();
+    this.mirrors?.group.removeFromParent();
+    this.mirrors = null;
+    const v = this.vehicle;
+    if (v.id === 'bicycle' || !v.eye) return;
+    this.mirrors = new Mirrors(v.id === 'car' ? 'car' : 'scooter', this.quality, v.eye);
+    try {
+      const a = JSON.parse(localStorage.getItem('dg.mirrors') ?? '{}') as { on?: boolean; yaw?: number; pitch?: number };
+      if (typeof a.on === 'boolean') this.mirrorsOn = a.on;
+      this.mirrors.adjust.yaw = a.yaw ?? 0;
+      this.mirrors.adjust.pitch = a.pitch ?? 0;
+    } catch {
+      /* ignore */
+    }
+    v.frame.add(this.mirrors.group);
+  }
+
+  /** Traffic amount: 0.5 light, 1 normal, 1.5 heavy (rebuilds the traffic). */
+  setTrafficDensity(d: number) {
+    if (d === this.trafficDensity) return;
+    this.trafficDensity = d;
+    try {
+      localStorage.setItem('dg.traffic', String(d));
+    } catch {
+      /* ignore */
+    }
+    if (this.traffic) {
+      this.scene.remove(this.traffic.group);
+      disposeTree(this.traffic.group);
+      this.traffic = new Traffic(this.graph, this.district, this.quality, d);
+      this.scene.add(this.traffic.group);
+    }
+  }
+
+  /** Mirror settings: on/off and an angle offset in degrees. */
+  setMirrors(s: { on?: boolean; yaw?: number; pitch?: number }) {
+    if (s.on !== undefined) this.mirrorsOn = s.on;
+    if (this.mirrors) {
+      if (s.yaw !== undefined) this.mirrors.adjust.yaw = (s.yaw * Math.PI) / 180;
+      if (s.pitch !== undefined) this.mirrors.adjust.pitch = (s.pitch * Math.PI) / 180;
+    }
+    const m = this.mirrors?.adjust;
+    try {
+      localStorage.setItem('dg.mirrors', JSON.stringify({ on: this.mirrorsOn, yaw: m?.yaw ?? 0, pitch: m?.pitch ?? 0 }));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  mirrorSettings() {
+    const m = this.mirrors?.adjust;
+    return { on: this.mirrorsOn, yaw: ((m?.yaw ?? 0) * 180) / Math.PI, pitch: ((m?.pitch ?? 0) * 180) / Math.PI };
   }
 
   setQuality(q: Quality) {
     if (q === this.quality) return;
     this.quality = q;
     this.applyQuality();
+    const fog = this.scene.fog as THREE.Fog;
+    this.atmos.setFogBase({ near: fog.near, far: fog.far });
     this.applyShadowSize();
     this.post.setQuality(q);
+    this.mountMirrors();
     this.resize();
     const list = [...this.merchants.values()].map((v) => v.merchant);
     this.buildWorld(list);
@@ -469,8 +528,12 @@ export class Engine {
   private onKey = (e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (e.type === 'keydown') this.keys.add(e.code);
-    else this.keys.delete(e.code);
+    if (e.type === 'keydown') {
+      if (!e.repeat && e.code === 'KeyE') this.restartEngine();
+      if (!e.repeat && e.code === 'KeyR') this.resetToRoad();
+      if (!e.repeat && e.code === 'KeyH') this.audio.horn(0, this.vehicle.id === 'car' ? 1 : 1.25);
+      this.keys.add(e.code);
+    } else this.keys.delete(e.code);
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   };
 
@@ -550,21 +613,31 @@ export class Engine {
     this.elapsed += dt;
     const t = this.elapsed;
     if (!this.paused) this.update(dt, t);
+    if (this.mirrors) {
+      this.mirrors.group.visible = this.mirrorsOn;
+      if (this.mirrorsOn && this.cameraMode !== 'showcase') this.mirrors.render(this.renderer, this.scene, this.vehicle.frame, this.cameraMode === 'rider');
+    }
     this.post.render();
   };
 
   private update(dt: number, t: number) {
     const v = this.vehicle;
     this.input = this.readInput();
+    const edge = distanceToRoadEdge(this.graph, { x: v.x, y: v.y });
     if (t - this.gripAt > 0.15) {
       this.gripAt = t;
-      this.grip = distanceToRoadEdge(this.graph, { x: v.x, y: v.y }) <= 4 ? 1 : 0;
+      this.grip = edge <= 4 ? 1 : 0;
     }
+    this.kerb(edge);
+    const wetGrip = this.atmos.gripFactor();
     const steps = Math.ceil(dt / (1 / 120));
     for (let i = 0; i < steps; i++) {
-      v.step(dt / steps, this.input, this.grip);
+      v.step(dt / steps, this.input, this.grip, wetGrip);
       this.collide();
     }
+    if (this.input.brake > 0.6 && this.prevBrake <= 0.6 && v.speed > 8) this.audio.brake(this.input.brake);
+    this.prevBrake = this.input.brake;
+    this.audio.update({ rpm: v.rpm, throttle: this.input.throttle, running: v.engineOn, slip: v.slip, speed: Math.abs(v.speed), rain: this.atmos.rain });
     // tunnels and bridges: follow the height of the road under the vehicle
     if (this.graded) {
       const h = roadHeightAt(this.graph, { x: v.x, y: v.y }, v.z) ?? 0;
@@ -572,7 +645,11 @@ export class Engine {
     }
     v.sync();
     const now = performance.now();
-    this.traffic?.update(dt, { x: v.x, y: v.y, r: v.spec.radius, z: v.z }, now);
+    this.traffic?.update(dt, { x: v.x, y: v.y, r: v.spec.radius, z: v.z, h: v.heading }, now);
+    if (this.traffic?.horns.length) {
+      for (const h of this.traffic.horns) this.audio.horn(Math.hypot(h.x - v.x, h.y - v.y), 0.85 + Math.random() * 0.35);
+      this.traffic.horns.length = 0;
+    }
     if (this.traffic && t - this.lightAt > 0.2) {
       this.lightAt = t;
       const ahead = this.traffic.lightAhead(v.x, v.y, v.heading);
@@ -585,6 +662,7 @@ export class Engine {
     if (this.routeTex) this.routeTex.offset.y = -t * 1.2;
     this.animateBeacons(t);
     this.updateCamera(dt);
+    this.updateAtmosphere(dt, t);
 
     if (this.target && t - this.routeAt.t > 0.4) {
       const moved = Math.hypot(v.x - this.routeAt.x, v.y - this.routeAt.y);
@@ -601,36 +679,131 @@ export class Engine {
     }
   }
 
+  /** Time of day, weather, and everything that follows them (lamps, car lights, headlight, exposure). */
+  private updateAtmosphere(dt: number, t: number) {
+    const a = this.atmos;
+    a.step(dt, this.camera.position);
+    this.sunDir.copy(a.lightDir);
+    const v = this.vehicle;
+    this.nightLights?.update(a.night, new THREE.Vector3(v.x, v.z, -v.y), t);
+    const lamps = Math.max(a.night, a.rain * 0.7, a.fog * 0.7);
+    this.traffic?.setLights(lamps);
+    if (this.headlight) this.headlight.intensity = 450 * lamps;
+    // the eye adapts a little to the dark
+    this.renderer.toneMappingExposure = 0.92 + 0.3 * a.night;
+  }
+
+  /**
+   * Solid obstacles: building walls, barriers, poles, parked and moving cars. The vehicle is a row of
+   * circles; each overlap pushes it out and bounces its velocity off the surface (Vehicle.hit), so the
+   * outcome depends on speed and angle: a scrape along a wall keeps going, a head-on stops dead, a hard
+   * hit throws a bike down and stalls the engine.
+   */
   private collide() {
     const v = this.vehicle;
-    const r = v.spec.radius;
-    const moving = this.traffic?.boxesNear(v.x, v.y, r + 6) ?? [];
-    for (const b of [...this.world.grid.near(v.x, v.y, r + 40), ...moving]) {
-      if (b.enabled === false) continue;
-      // walls of a tunnel, bridge parapets: only at their own height
-      if (b.z0 !== undefined && (v.z < b.z0 || v.z > b.z1!)) continue;
-      const hit = circleVsBox(v.x, v.y, r, b);
-      if (!hit) continue;
-      v.x += hit.nx * hit.depth;
-      v.y += hit.ny * hit.depth;
-      // lose the velocity component going into the wall
-      const fx = Math.sin(v.heading);
-      const fy = Math.cos(v.heading);
-      const into = (fx * hit.nx + fy * hit.ny) * Math.sign(v.speed);
-      if (into < -0.2) {
-        if (moving.includes(b)) this.traffic?.bumped(b.id, performance.now());
-        const impact = Math.abs(v.speed);
-        v.speed *= 0.25;
-        const now = performance.now();
-        if (impact > 6 && now - this.lastBump > 1500) {
-          this.lastBump = now;
-          this.cb.onBump(impact);
+    const moving = this.traffic?.boxesNear(v.x, v.y, 8) ?? [];
+    const fixed = this.world.grid.near(v.x, v.y, 44);
+    for (const c of v.shapes()) {
+      for (const b of [...fixed, ...moving]) {
+        if (b.enabled === false) continue;
+        // walls of a tunnel, bridge parapets: only at their own height
+        if (b.z0 !== undefined && (v.z < b.z0 || v.z > b.z1!)) continue;
+        const hit = circleVsBox(c.x, c.y, c.r, b);
+        if (!hit) continue;
+        v.x += hit.nx * hit.depth;
+        v.y += hit.ny * hit.depth;
+        c.x += hit.nx * hit.depth;
+        c.y += hit.ny * hit.depth;
+        const isCar = moving.includes(b);
+        // a moving car outweighs a scooter about five to one
+        const res = v.hit(hit.nx, hit.ny, isCar ? (v.id === 'car' ? 1 : 5) : Infinity);
+        if (!res) continue;
+        if (isCar) {
+          this.traffic?.bumped(b.id, performance.now());
+          if (res.speed > 1) this.audio.horn(6, 0.9 + Math.random() * 0.25);
         }
+        this.onImpact(res);
       }
     }
     const bnd = this.world.boundsLocal;
     v.x = Math.max(bnd.minX - 150, Math.min(bnd.maxX + 150, v.x));
     v.y = Math.max(bnd.minY - 150, Math.min(bnd.maxY + 150, v.y));
+  }
+
+  private onImpact(res: ImpactResult) {
+    if (res.speed < 0.8) return;
+    this.audio.impact(res.severity);
+    const now = performance.now();
+    if (res.speed > 3.5 && now - this.lastBump > 1500) {
+      this.lastBump = now;
+      this.cb.onBump(res.speed);
+    }
+    if (res.speed > 2.5) this.cb.onCrash?.(res);
+  }
+
+  /**
+   * Kerbs: riding off the carriageway at a steep angle and speed strikes the kerb like a wall; slowly or
+   * at a shallow angle the vehicle rides up it with a jolt.
+   */
+  private kerb(edge: number) {
+    const v = this.vehicle;
+    const was = this.prevEdge;
+    this.prevEdge = edge;
+    if (!(was <= 0 && edge > 0) || Math.abs(v.z) > 0.5 || v.fallen) return;
+    const near = nearestOnNetwork(this.graph, { x: v.x, y: v.y });
+    if (!near || near.distance < 0.01) return;
+    const nx = (v.x - near.point.x) / near.distance;
+    const ny = (v.y - near.point.y) / near.distance;
+    const out = (Math.sin(v.heading) * nx + Math.cos(v.heading) * ny) * v.speed;
+    const limit = v.id === 'car' ? 2.4 : v.id === 'motorcycle' ? 4 : 3;
+    if (out > limit) {
+      // back onto the road edge, then bounce off the kerb face
+      const back = edge + 0.05;
+      v.x -= nx * back;
+      v.y -= ny * back;
+      this.prevEdge = -0.05;
+      const res = v.hit(-nx, -ny);
+      if (res) this.onImpact({ ...res, severity: res.severity * 0.6 });
+    } else if (out > 0.4) {
+      v.speed *= 0.94;
+      v.shake = Math.max(v.shake, 0.12);
+      this.audio.impact(0.06);
+    }
+  }
+
+  /** Restart a stalled engine (button or E key). */
+  restartEngine() {
+    if (this.vehicle.restartEngine()) this.audio.starter();
+  }
+
+  /** Pick the bike up where it lies. */
+  standUp() {
+    this.vehicle.standUp();
+  }
+
+  /** Put the vehicle back on the nearest road, in the right-hand lane, upright, engine running. */
+  resetToRoad() {
+    const v = this.vehicle;
+    const near = nearestOnNetwork(this.graph, { x: v.x, y: v.y });
+    if (!near) return;
+    const s = near.segment;
+    let tx = (s.b.x - s.a.x) / (s.length || 1);
+    let ty = (s.b.y - s.a.y) / (s.length || 1);
+    // keep roughly the direction the player was going
+    if (tx * Math.sin(v.heading) + ty * Math.cos(v.heading) < 0) {
+      tx = -tx;
+      ty = -ty;
+    }
+    const off = s.width / 4;
+    v.x = near.point.x + ty * off;
+    v.y = near.point.y - tx * off;
+    v.heading = Math.atan2(tx, ty);
+    v.z = roadHeightAt(this.graph, { x: v.x, y: v.y }, v.z) ?? 0;
+    v.standUp();
+    v.engineOn = true;
+    v.sync();
+    this.prevEdge = -1;
+    this.snapCamera();
   }
 
   /** First-person view hides the rider's head (detailed models) or the whole rider (procedural ones). */
@@ -680,6 +853,7 @@ export class Engine {
       snap = true;
       this.snapNext = false;
     }
+    this.camera.up.set(0, 1, 0);
     if (this.cameraMode === 'showcase') {
       // slow three-quarter orbit around the vehicle for the menu
       const a = this.elapsed * 0.08 + 0.75;
@@ -695,15 +869,20 @@ export class Engine {
       this.camera.position.copy(this.camPos);
       this.camera.lookAt(this.camLook);
       this.showRider(false);
-      this.sky.position.copy(this.camera.position);
-      this.sky.scale.setScalar(this.camera.far * 0.9);
       return;
     }
     if (this.cameraMode === 'far') {
       back = 22;
       up = 14;
       ahead = 10;
-    } else if (this.cameraMode === 'rider') {
+    }
+    // a fallen rider watches from behind the bike
+    const rider = this.cameraMode === 'rider' && !v.fallen;
+    if (this.cameraMode === 'rider' && v.fallen) {
+      back = 5.2;
+      up = 2.2;
+      ahead = 0;
+    } else if (rider) {
       back = car ? -0.35 : -0.05;
       up = car ? 1.25 : 1.78;
       ahead = 20;
@@ -717,28 +896,51 @@ export class Engine {
       }
     }
     // the car's driver sits on the left: shift the eye sideways (x is the vehicle's left)
-    const side = this.cameraMode === 'rider' && v.eye ? v.eye.x : 0;
+    const side = rider && v.eye ? v.eye.x : 0;
     const lx = -fy * side;
     const ly = fx * side;
     const want = new THREE.Vector3(v.x - fx * back + lx, v.z + up, -(v.y - fy * back + ly));
-    const look = new THREE.Vector3(v.x + fx * ahead + lx, v.z + (this.cameraMode === 'rider' ? up - drop : 1.4), -(v.y + fy * ahead + ly));
-    const k = snap ? 1 : 1 - Math.exp(-dt * (this.cameraMode === 'rider' ? 20 : 6));
+    const look = new THREE.Vector3(v.x + fx * ahead + lx, v.z + (rider ? up - drop : 1.4), -(v.y + fy * ahead + ly));
+    // the rider's head goes with the bike's lean, the body's pitch and the bumps of the road
+    const rightX = fy;
+    const rightZ = fx;
+    let roll = 0;
+    if (rider) {
+      const lean = v.leanAngle;
+      const h = up;
+      want.x += rightX * h * Math.sin(lean);
+      want.z += rightZ * h * Math.sin(lean);
+      want.y -= h * (1 - Math.cos(lean)) - v.heave - v.pitch * 0.4;
+      look.y -= v.pitch * ahead;
+      roll = lean * 0.75;
+      // a fine vibration from the engine and the road surface
+      const sp = Math.abs(v.speed);
+      const buzz = (v.engineOn && v.id !== 'bicycle' ? 0.0012 : 0) + 0.0025 * Math.min(1, sp / 20);
+      want.y += Math.sin(this.elapsed * 97) * buzz;
+      want.x += Math.sin(this.elapsed * 71) * buzz * 0.5;
+    }
+    // crash shake
+    if (v.shake > 0.01) {
+      const a = v.shake * (rider ? 0.12 : 0.25);
+      want.x += Math.sin(this.elapsed * 53) * a;
+      want.y += Math.sin(this.elapsed * 61 + 1) * a;
+      look.x += Math.sin(this.elapsed * 47 + 2) * a * 2;
+    }
+    const k = snap ? 1 : 1 - Math.exp(-dt * (rider ? 20 : 6));
     this.camPos.lerp(want, k);
     this.camLook.lerp(look, k);
     // the driver's eye is fixed to the vehicle: no smoothing, or the camera would trail behind the seat at speed
-    if (snap || this.cameraMode === 'rider') {
+    if (snap || rider) {
       this.camPos.copy(want);
       this.camLook.copy(look);
     }
     this.camera.position.copy(this.camPos);
+    // roll the view with the bike (the eye's "up" tilts towards the lean)
+    this.camera.up.set(Math.sin(roll) * rightX, Math.cos(roll), Math.sin(roll) * rightZ);
     this.camera.lookAt(this.camLook);
-    this.showRider(this.cameraMode === 'rider');
-    this.sky.position.copy(this.camera.position);
-    this.sky.scale.setScalar(this.camera.far * 0.9);
-    if (this.sun.castShadow) {
-      this.sun.position.set(v.x + this.sunDir.x * 260, this.sunDir.y * 260, -v.y + this.sunDir.z * 260);
-      this.sun.target.position.set(v.x, 0, -v.y);
-    }
+    this.showRider(rider);
+    this.sun.position.set(v.x + this.sunDir.x * 260, this.sunDir.y * 260, -v.y + this.sunDir.z * 260);
+    this.sun.target.position.set(v.x, 0, -v.y);
   }
 
   private emitHud() {
@@ -777,6 +979,9 @@ export class Engine {
       routeRemaining: this.route ? this.route.length : null,
       route: this.route?.points ?? null,
       target: this.target,
+      engineOff: v.needsRestart,
+      fallen: v.fallen,
+      hour: this.atmos.hour,
     });
   }
 
@@ -807,6 +1012,8 @@ export class Engine {
 
   dispose() {
     cancelAnimationFrame(this.raf);
+    this.audio.dispose();
+    this.atmos.dispose();
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('keyup', this.onKey);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);

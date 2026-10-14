@@ -18,6 +18,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'desktop', use: { viewport: { width: 1366, height: 820 } }, testMatch: /demo\.spec/ },
+    { name: 'world', use: { viewport: { width: 1024, height: 640 } }, testMatch: /world\.spec/ },
     { name: 'mobile', use: { ...devices['iPhone 13'], browserName: 'chromium' }, testMatch: /mobile\.spec/ },
   ],
   webServer: process.env.E2E_BASE_URL

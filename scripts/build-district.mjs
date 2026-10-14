@@ -20,7 +20,7 @@ const streets = read('data/osm/streets.json.gz');
 const places = read('data/osm/places.json.gz');
 const current = JSON.parse(readFileSync(new URL('shared/data/district.json', root), 'utf8'));
 
-const BOX = { south: 36.17, west: 43.998, north: 36.206, east: 44.026 };
+const BOX = { south: 36.17, west: 43.962, north: 36.206, east: 44.026 };
 const TUNNEL_Z = -6.2;
 const BRIDGE_Z = 6.5;
 const RAMP = { tunnel: 115, bridge: 125 };
@@ -276,6 +276,8 @@ const landmarks = [
   { name_ar: 'برج زانياري A', name_en: 'Zanyari Tower A', kind: 'tower', lat: 36.1746704, lng: 44.0078291 },
   { name_ar: 'برج زانياري B', name_en: 'Zanyari Tower B', kind: 'tower', lat: 36.1749417, lng: 44.0074043 },
   { name_ar: 'برج زانياري C', name_en: 'Zanyari Tower C', kind: 'tower', lat: 36.17472, lng: 44.0069164 },
+  // Empire World: the Empire Business Towers and the Empire Residential Wings (OpenStreetMap buildings)
+  { name_ar: 'إمباير وورلد', name_en: 'Empire World', kind: 'district', lat: 36.2003, lng: 43.9692 },
   { name_ar: 'نفق الإسكان — شارع الستين', name_en: 'Iskan tunnel, Sixty Meter Street', kind: 'tunnel', lat: 36.1766877, lng: 44.0195374 },
 ];
 

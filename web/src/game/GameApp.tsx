@@ -16,6 +16,8 @@ import { DirectoryPanel, InteriorPickup, ManagerDialog, MerchantCard, MissionBoa
 import { fontsReady } from './textures';
 import { fmtClock, fmtDistance } from './time';
 import type { Quality } from './world';
+import { facadeUniforms } from './facade';
+import { AtmosSettings, MirrorSettings, SoundToggle, TrafficSettings } from './AtmosSettings';
 
 interface WorldPayload {
   version: number;
@@ -172,6 +174,10 @@ export default function GameApp() {
         },
         onTapMerchant: (id) => setOverlay({ kind: 'card', id }),
         onBump: () => toast(lang === 'ar' ? 'انتبه — الطلبية هشة' : 'Careful — the order is fragile'),
+        onCrash: (r) => {
+          if (r.fell) toast(lang === 'ar' ? 'وقعت! ارفع الدراجة أو ارجع إلى الطريق' : 'You came off! Pick up the bike or go back to the road');
+          else if (r.stalled) toast(lang === 'ar' ? 'انطفأ المحرك — شغّله من جديد' : 'The engine stalled — start it again');
+        },
         onRedLight: () => toast(lang === 'ar' ? 'قطعت الإشارة الحمراء! انتبه للمرور' : 'You ran a red light! Watch the traffic'),
         onSlow: (q) => setSettingsState((s) => {
           if (!s.autoQuality || s.quality === q) return s;
@@ -187,6 +193,7 @@ export default function GameApp() {
     if (new URLSearchParams(location.search).has('debug')) {
       (window as unknown as { __dg: unknown }).__dg = {
         engine,
+        facade: facadeUniforms,
         teleportTo: (lat: number, lng: number) => engine.teleport(toLocal({ lat, lng }, world.district.origin)),
         /** stand on a merchant's pickup point, facing the storefront (back off `back` metres) */
         goToMerchant: (id: number, back = 0) => engine.focusMerchant(id, back),
@@ -616,6 +623,21 @@ export default function GameApp() {
           </div>
 
           <div className={`context-action ${settings.camera === 'rider' ? 'fp' : ''}`}>
+            {hud?.fallen && (
+              <>
+                <button className="btn primary" onClick={() => engineRef.current?.standUp()} data-testid="stand-up">
+                  <Icon name="reset" size={17} /> {lang === 'ar' ? 'ارفع الدراجة' : 'Pick up the bike'}
+                </button>
+                <button className="btn" style={{ background: 'var(--surface)' }} onClick={() => engineRef.current?.resetToRoad()} data-testid="reset-road">
+                  {lang === 'ar' ? 'العودة إلى الطريق' : 'Back to the road'}
+                </button>
+              </>
+            )}
+            {!hud?.fallen && hud?.engineOff && (
+              <button className="btn primary" onClick={() => engineRef.current?.restartEngine()} data-testid="restart-engine">
+                <Icon name="play" size={17} /> {lang === 'ar' ? 'شغّل المحرك' : 'Start the engine'}
+              </button>
+            )}
             {hud?.zone === 'pickup' &&
               (() => {
                 const origin = mission ? merchantMap.get(mission.origin_merchant_id) : undefined;
@@ -713,6 +735,16 @@ export default function GameApp() {
             <button className="btn" onClick={() => setOverlay({ kind: 'settings' })}>
               <Icon name="settings" size={17} /> {t('settings')}
             </button>
+            <button
+              className="btn"
+              onClick={() => {
+                engineRef.current?.resetToRoad();
+                setOverlay({ kind: 'none' });
+              }}
+              data-testid="pause-reset-road"
+            >
+              <Icon name="reset" size={17} /> {lang === 'ar' ? 'العودة إلى الطريق' : 'Back to the road'}
+            </button>
             <button className="btn" onClick={() => setOverlay({ kind: 'progress' })}>
               <Icon name="history" size={17} /> {t('history')} · {t('achievements')}
             </button>
@@ -758,6 +790,10 @@ export default function GameApp() {
               </button>
             ))}
           </div>
+          <AtmosSettings atmos={engineRef.current?.atmos} lang={lang} />
+          <SoundToggle engine={engineRef.current} lang={lang} />
+          <MirrorSettings engine={engineRef.current} lang={lang} />
+          <TrafficSettings engine={engineRef.current} lang={lang} />
           <h3>{t('controls')}</h3>
           <div className="seg-tabs">
             <button className={settings.controls === 'buttons' ? 'on' : ''} onClick={() => setSettings({ controls: 'buttons' })}>
@@ -779,7 +815,9 @@ export default function GameApp() {
             ))}
           </div>
           <p className="small muted">
-            {lang === 'ar' ? 'لوحة المفاتيح: الأسهم أو WASD للقيادة، المسافة للفرامل.' : 'Keyboard: arrows or WASD to drive, Space to brake.'}
+            {lang === 'ar'
+              ? 'لوحة المفاتيح: الأسهم أو WASD للقيادة، المسافة للفرامل، H للزمور، E لتشغيل المحرك، R للعودة إلى الطريق.'
+              : 'Keyboard: arrows or WASD to drive, Space to brake, H horn, E start the engine, R back to the road.'}
           </p>
           <p className="small muted">{world && pick(world.district.attribution, world.district.attribution)}</p>
           <p className="small faint">

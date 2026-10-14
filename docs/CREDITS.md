@@ -25,9 +25,17 @@ A full build takes about an hour on four CPU cores, mostly baking the people. Ad
 
 ## Map data
 
-Street geometry, tunnels, bridges, business names and landmark positions come from OpenStreetMap: © OpenStreetMap contributors, available under the Open Database License (ODbL), https://www.openstreetmap.org/copyright. The raw extract is in `data/osm/`. The game shows the attribution in its settings, and the dashboard map shows it too. Real business names appear only as street signs and landmarks; none of them is a playable merchant, and none of their logos is used. Before a commercial launch, confirm that businesses shown by name (for example Samad restaurant) are happy to appear.
+Street geometry, tunnels, bridges, building footprints and heights (22,157 buildings, built into `web/public/data/buildings.json` by `scripts/build-buildings.mjs`), trees, parks, business names and landmark positions come from OpenStreetMap: © OpenStreetMap contributors, available under the Open Database License (ODbL), https://www.openstreetmap.org/copyright. The raw extract is in `data/osm/`. The game shows the attribution in its settings, and the dashboard map shows it too. Real business names appear only as street signs and landmarks; none of them is a playable merchant, and none of their logos is used. Before a commercial launch, confirm that businesses shown by name (for example Samad restaurant) are happy to appear.
 
 ## Photographed materials and sky
 
 Asphalt, pavers, paving, plaster, sand, a metal shutter and the sky panorama come from Poly Haven (https://polyhaven.com) under CC0 1.0: free for any use, including commercial, with no attribution required. The list is in `web/public/textures/CREDITS.txt`. The originals are on the `asset-candidates` branch (fetched by `.github/workflows/assets-fetch.yml`), and are converted with `tools/assets/convert_polyhaven.py`.
 
+
+## Sound
+
+Every sound (engine, tyres, brakes, impacts, rain, horns) is synthesised in the browser with the Web Audio API (`web/src/game/audio.ts`). No recorded samples are used.
+
+## Live weather (optional)
+
+When the player turns on "Erbil's current weather" in the settings, the game asks Open-Meteo (https://open-meteo.com, free, no key; weather data CC BY 4.0) for the current conditions in Erbil, every 10 minutes. It is off by default; without a connection the game keeps its own automatic weather.

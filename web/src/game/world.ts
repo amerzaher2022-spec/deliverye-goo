@@ -15,6 +15,10 @@ import { ChunkedInstances } from './chunked';
 import { photoTexture, type PhotoSet } from './pbr';
 import { parkedCarGeometries } from './models';
 import { barrierTexture, facadeTexture, groundTexture, roadTexture, sidewalkTexture, type FacadeStyle } from './textures';
+import { wetSurface } from './atmosphere';
+import { buildRoadDetails } from './roaddetails';
+import { buildCity, buildingData } from './buildings';
+import { boxFaces, type SignFace } from './landmarks';
 
 export type Quality = 'low' | 'medium' | 'high';
 
@@ -141,6 +145,15 @@ const JERSEY: [number, number][] = [
  */
 export function surfaceMaterial(
   quality: Quality,
+  params: { map?: THREE.Texture; color?: string; polygonOffsetFactor?: number; relief?: { set: PhotoSet; tiles: number; strength?: number }; dry?: boolean },
+) {
+  const m = surfaceMaterialBase(quality, params);
+  // paved surfaces get wet in the rain (atmosphere.ts)
+  return params.dry ? m : wetSurface(m, quality);
+}
+
+function surfaceMaterialBase(
+  quality: Quality,
   params: { map?: THREE.Texture; color?: string; polygonOffsetFactor?: number; relief?: { set: PhotoSet; tiles: number; strength?: number } },
 ) {
   const po = params.polygonOffsetFactor ? { polygonOffset: true, polygonOffsetFactor: params.polygonOffsetFactor } : {};
@@ -243,6 +256,10 @@ export class World {
   readonly group = new THREE.Group();
   readonly grid = new BoxGrid(40);
   readonly buildings: GenericBuilding[] = [];
+  /** street lamps: the lens and the spot on the road below it, scene space */
+  readonly lampLights: { head: THREE.Vector3; ground: THREE.Vector3 }[] = [];
+  /** street-facing walls for shop signs */
+  readonly signFaces: SignFace[];
   readonly parked: Box[] = [];
   readonly zonesLocal: { kind: string; poly: LocalPoint[] }[];
   readonly boundsLocal: { minX: number; maxX: number; minY: number; maxY: number };
@@ -273,7 +290,16 @@ export class World {
     this.buildGround();
     this.buildRoads();
     this.buildGradeSeparation();
-    this.buildBuildings();
+    // real footprints when the building file loaded, generated blocks along the streets otherwise
+    const city = buildingData() ? buildCity(opts.quality, opts.reserved) : null;
+    if (city && city.walls.length) {
+      this.group.add(city.group);
+      for (const w of city.walls) this.grid.add(w);
+      this.signFaces = city.shopWalls.map((s) => ({ x: s.x, y: s.y, nx: s.nx, ny: s.ny, w: s.len, z: 3.35, hMax: 0.9 }));
+    } else {
+      this.buildBuildings();
+      this.signFaces = boxFaces(graph, this.buildings);
+    }
     this.buildStreetFurniture();
     this.buildParkedCars();
   }
@@ -528,7 +554,7 @@ export class World {
     this.addMerged(sideGeos, walkMat);
     this.addMerged(curbGeos, surfaceMaterial(q, { color: '#b8b3aa' }));
     this.addMerged(medianGeos, surfaceMaterial(q, { color: '#cfcac0' }));
-    this.addMerged(medianTop, surfaceMaterial(q, { color: '#76805a' }));
+    this.addMerged(medianTop, surfaceMaterial(q, { color: '#76805a', dry: true }));
     if (barrierGeos.length) {
       const m = new THREE.Mesh(mergeGeometries(barrierGeos), new THREE.MeshLambertMaterial({ map: barrierTexture() }));
       m.castShadow = q === 'high';
@@ -603,6 +629,9 @@ export class World {
     junctionTex.repeat.set(2, 2);
     this.addMerged(discs, surfaceMaterial(q, { map: junctionTex, color: '#77787c', polygonOffsetFactor: -2, relief: { set: 'asphalt', tiles: 3, strength: 0.8 } }));
     this.addMerged(zebras, surfaceMaterial(q, { color: '#e6e3da', polygonOffsetFactor: -3 }));
+    // arrows, drains, manholes, patches and cracks
+    const widthOf = (id: string) => this.district.roads.find((x) => x.id === id)?.width ?? 12;
+    this.group.add(buildRoadDetails(this.graph, q, this.junctions(), widthOf, isGraded));
   }
 
   /** Is the box clear of every road (with a margin)? */
@@ -832,9 +861,13 @@ export class World {
           const ny = t.x * side;
           const at = { x: p.x + nx * (road.width / 2 + 1.4), y: p.y + ny * (road.width / 2 + 1.4) };
           if (this.opts.reserved.some((r) => Math.hypot(r.cx - at.x, r.cy - at.y) < Math.hypot(r.hw, r.hd) + 8)) continue;
+          // not inside (or against) a building wall
+          if (this.grid.anyOverlap({ cx: at.x, cy: at.y, ux: 1, uy: 0, hw: 0.3, hd: 0.3 }, 0.4)) continue;
           // the lamp arm (+X in the model) reaches over the carriageway, towards -n
           const m = new THREE.Matrix4().compose(v3(at), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-ny, -nx)), new THREE.Vector3(1, 1, 1));
           lamps.push(m);
+          const head = new THREE.Vector3(2.25, 8.82, 0).applyMatrix4(m);
+          this.lampLights.push({ head, ground: new THREE.Vector3(head.x, 0, head.z) });
         }
         if (road.kind === 'arterial') {
           const m = new THREE.Matrix4();

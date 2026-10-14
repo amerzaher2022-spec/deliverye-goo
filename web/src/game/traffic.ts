@@ -5,6 +5,7 @@
 // mesh per car type) and give the player's vehicle something to bump into.
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { RoadGraph } from '../../../shared/roads';
 import type { DistrictData } from '../../../shared/types';
 import type { Box } from './collision';
@@ -21,6 +22,8 @@ const PHASE = GREEN + YELLOW + ALL_RED;
 const LIVE_RADIUS = 280;
 const SPAWN_MIN = 70;
 const SPAWN_MAX = 240;
+/** how much more traffic each road class carries */
+const CLASS_WEIGHT: Record<string, number> = { arterial: 3.2, primary: 2.2, secondary: 1.4, local: 0.35 };
 /** lane centres, metres right of the road centre line, matching the lane paint in textures.ts; the kerb
  * lane is left free for parked cars */
 const LANES: Record<string, number[]> = { arterial: [3.9, 8.0], primary: [2.6, 6.0], secondary: [3.0], local: [2.4] };
@@ -91,6 +94,8 @@ interface Car {
   /** after a bump: stand still until this time */
   holdUntil: number;
   box: Box;
+  /** seconds spent stopped behind the player (drivers honk after a while) */
+  wait?: number;
 }
 
 function rng(seed: number) {
@@ -118,6 +123,10 @@ export class Traffic {
   private cars: Car[] = [];
   private meshes = new Map<ParkedKind, THREE.InstancedMesh>();
   private lamps: THREE.InstancedMesh | null = null;
+  private carLights: THREE.InstancedMesh | null = null;
+  private started = false;
+  /** horn events since the last read (positions) */
+  horns: { x: number; y: number }[] = [];
   /** per lamp: junction, road, and which colour it shows */
   private lampInfo: { j: Junction; road: string; colour: Light }[] = [];
   private lampState: Light[] = [];
@@ -132,9 +141,12 @@ export class Traffic {
     private graph: RoadGraph,
     private district: DistrictData,
     private quality: Quality,
+    /** player's traffic setting: 0.5 light, 1 normal, 1.5 heavy */
+    private density = 1,
   ) {
     this.group.name = 'traffic';
     this.buildLanes();
+    this.indexLanes();
     this.buildSignals();
     this.buildCars();
   }
@@ -231,6 +243,15 @@ export class Traffic {
   }
 
   // ------------------------------------------------------------------ traffic lights
+
+  /** Lanes by 120 m square, for spawning near the player. */
+  private laneGrid = new Map<string, Lane[]>();
+  private indexLanes() {
+    for (const e of this.lanes) {
+      const k = `${Math.floor((e.ax + (e.dx * e.len) / 2) / 120)},${Math.floor((e.ay + (e.dy * e.len) / 2) / 120)}`;
+      (this.laneGrid.get(k) ?? this.laneGrid.set(k, []).get(k)!).push(e);
+    }
+  }
 
   private buildSignals() {
     const poleGeos: THREE.BufferGeometry[] = [];
@@ -333,7 +354,7 @@ export class Traffic {
   // ------------------------------------------------------------------ cars
 
   private buildCars() {
-    const n = TRAFFIC_SIZE[this.quality];
+    const n = Math.round(TRAFFIC_SIZE[this.quality] * this.density);
     if (!this.lanes.length || !n) return;
     const kinds: ParkedKind[] = [];
     for (let i = 0; i < n; i++) kinds.push(PARKED_KINDS[pickKind(this.rand())]!);
@@ -380,24 +401,76 @@ export class Traffic {
         z: 0,
         h: 0,
         holdUntil: 0,
+        wait: 0,
         box: { cx: 0, cy: 0, ux: 0, uy: 1, hw: PARKED_LEN[kind], hd: 0.95, id: `t${this.cars.length}` },
       };
       this.meshes.get(kind)!.setColorAt(idx, new THREE.Color(COLORS[Math.floor(this.rand() * COLORS.length)]!));
       this.cars.push(car);
     }
     for (const im of this.meshes.values()) if (im.instanceColor) im.instanceColor.needsUpdate = true;
+
+    // head and tail lamps, one instance per car (shown after dark and in rain or fog)
+    const quads: THREE.BufferGeometry[] = [];
+    const lamp = (x: number, y: number, front: boolean, w: number, h: number, col: THREE.Color) => {
+      const g = new THREE.PlaneGeometry(w, h);
+      if (!front) g.rotateY(Math.PI);
+      g.translate(x, y, front ? 1.01 : -1.01);
+      const c: number[] = [];
+      for (let i = 0; i < 4; i++) c.push(col.r, col.g, col.b);
+      g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+      quads.push(g);
+    };
+    const head = new THREE.Color(3.2, 3.0, 2.6);
+    const tail = new THREE.Color(2.4, 0.12, 0.08);
+    for (const sx of [-1, 1]) {
+      lamp(sx * 0.6, 0.72, true, 0.32, 0.13, head);
+      lamp(sx * 0.64, 0.86, false, 0.26, 0.12, tail);
+    }
+    const lights = new THREE.InstancedMesh(mergeGeometries(quads), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, side: THREE.DoubleSide }), this.cars.length);
+    lights.frustumCulled = false;
+    lights.visible = false;
+    this.carLights = lights;
+    this.group.add(lights);
+  }
+
+  /** 0..1: how strongly car lamps show (night, rain, fog). */
+  setLights(level: number) {
+    if (!this.carLights) return;
+    this.carLights.visible = level > 0.05;
+    (this.carLights.material as THREE.MeshBasicMaterial).color.setScalar(0.25 + 0.75 * level);
   }
 
   /** Put a car on a random lane near (px, py), away from the player and from other cars. */
-  private spawn(car: Car, px: number, py: number, min: number, max: number) {
+  private spawn(car: Car, px: number, py: number, min: number, max: number, ph?: number) {
+    // candidate lanes around the player; busier streets get more cars
+    const cx = Math.floor(px / 120);
+    const cy = Math.floor(py / 120);
+    const reach = Math.ceil(max / 120);
+    const near: Lane[] = [];
+    for (let dx = -reach; dx <= reach; dx++) for (let dy = -reach; dy <= reach; dy++) near.push(...(this.laneGrid.get(`${cx + dx},${cy + dy}`) ?? []));
+    if (!near.length) return false;
+    const weight = (e: Lane) => CLASS_WEIGHT[e.kind] ?? 1;
+    const total = near.reduce((a, e) => a + weight(e), 0);
+    const fx = ph === undefined ? 0 : Math.sin(ph);
+    const fy = ph === undefined ? 0 : Math.cos(ph);
     for (let attempt = 0; attempt < 40; attempt++) {
-      const e = this.lanes[Math.floor(this.rand() * this.lanes.length)]!;
+      let r = this.rand() * total;
+      let e = near[0]!;
+      for (const c of near) {
+        r -= weight(c);
+        if (r <= 0) {
+          e = c;
+          break;
+        }
+      }
       if (e.len < e.entryR + e.exitR + 6) continue;
       const s = e.entryR + this.rand() * (e.len - e.entryR - e.exitR - (e.signal ? e.stopBack : 0));
       const lane = Math.floor(this.rand() * e.lanes);
       const p = this.lanePoint(e, lane, s, this.tmp);
       const d = Math.hypot(p.x - px, p.y - py);
       if (d < min || d > max) continue;
+      // never appear in plain sight: far away, or behind the player
+      if (ph !== undefined && d < 170 && ((p.x - px) * fx + (p.y - py) * fy) / d > -0.2) continue;
       if (this.cars.some((c) => c !== car && c.vmax > 0 && Math.hypot(c.x - p.x, c.y - p.y) < 14)) continue;
       car.e = e;
       car.lane = lane;
@@ -503,13 +576,15 @@ export class Traffic {
     return gap;
   }
 
-  update(dt: number, player: { x: number; y: number; r: number; z?: number }, nowMs: number) {
+  update(dt: number, player: { x: number; y: number; r: number; z?: number; h?: number }, nowMs: number) {
     this.time += dt;
     this.updateLamps();
+    // the first fill places cars anywhere around; after that they only appear out of sight
+    if (this.time > 1) this.started = true;
     if (!this.cars.length) return;
     for (const car of this.cars) {
       if (car.vmax === 0 || Math.hypot(car.x - player.x, car.y - player.y) > LIVE_RADIUS) {
-        if (!this.spawn(car, player.x, player.y, car.vmax === 0 ? 25 : SPAWN_MIN, SPAWN_MAX)) car.vmax = 0;
+        if (!this.spawn(car, player.x, player.y, car.vmax === 0 ? 25 : SPAWN_MIN, SPAWN_MAX, this.started ? player.h : undefined)) car.vmax = 0;
       }
     }
     for (const car of this.cars) {
@@ -529,6 +604,14 @@ export class Traffic {
       }
       const gap = this.gapAhead(car, player);
       if (gap < Infinity) want = Math.min(want, Math.max(0, (gap - 2.2) * 0.9));
+      // blocked by the player: honk after a few seconds (and again later if still blocked)
+      if (car.v < 0.5 && Math.hypot(player.x - car.x, player.y - car.y) < car.box.hw + 9 && gap < 8) {
+        car.wait = (car.wait ?? 0) + dt;
+        if (car.wait > 3.5) {
+          car.wait = -4 - this.rand() * 4;
+          this.horns.push({ x: car.x, y: car.y });
+        }
+      } else if ((car.wait ?? 0) > 0) car.wait = 0;
       if (nowMs < car.holdUntil) want = 0;
       const dv = want - car.v;
       car.v = Math.max(0, car.v + Math.max(-7 * dt, Math.min(2.6 * dt, dv)));
@@ -549,14 +632,19 @@ export class Traffic {
       this.place(car);
     }
     // draw
-    for (const car of this.cars) {
+    this.cars.forEach((car, ci) => {
       const im = this.meshes.get(car.kind);
-      if (!im) continue;
+      if (!im) return;
       if (car.vmax === 0) this.m.makeScale(0, 0, 0);
       else this.m.compose(new THREE.Vector3(car.x, car.z + 0.03, -car.y), this.q.setFromAxisAngle(this.up, Math.PI - car.h), new THREE.Vector3(1, 1, 1));
       im.setMatrixAt(car.idx, this.m);
-    }
+      if (this.carLights?.visible) {
+        if (car.vmax !== 0) this.m.scale(new THREE.Vector3(1, 1, car.box.hw));
+        this.carLights.setMatrixAt(ci, this.m);
+      }
+    });
     for (const im of this.meshes.values()) im.instanceMatrix.needsUpdate = true;
+    if (this.carLights?.visible) this.carLights.instanceMatrix.needsUpdate = true;
   }
 
   /** Collision boxes of the moving cars near a point. */

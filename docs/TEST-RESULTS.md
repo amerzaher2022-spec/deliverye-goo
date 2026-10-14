@@ -1,13 +1,23 @@
 # Test results
 
-Last run on 2026-10-13 (after the real Erbil map, traffic and driver's-seat view) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
+Last run on 2026-10-14 (after the real buildings, day/night and weather, new vehicle physics, crashes, mirrors and road details) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
 
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | **pass** |
-| API, rules and geometry | `npm test` | **29 / 29 passed** |
+| API, rules, geometry and sun path | `npm test` | **32 / 32 passed** |
 | Production build | `npm run build` | **pass** |
-| Browser end-to-end | `npm run test:e2e` | **4 / 4 passed** |
+| Browser end-to-end | `npm run test:e2e` | **7 / 7 passed** |
+
+## The living world, checked in the browser (`e2e/world.spec.ts`)
+
+1. **Crash:** the scooter is set on a building wall at 45 km/h. After the impact it lies on its side, the engine is off and its speed is under 4 m/s (it does not pass through the wall). The "pick up the bike" button stands it up, the "start the engine" button restarts the engine, and "back to the road" puts it upright in a lane.
+2. **Mirrors:** both scooter mirrors' render targets hold a real picture of the street behind (mean brightness and contrast checked pixel by pixel).
+3. **Night and rain:** at 22:00 the street-lamp light pools, car lamps and lit windows are on and the sun is down. In heavy rain the rain is drawn, the road is fully wet, grip drops below 75 % and visibility (haze distance) drops under 260 m. After the rain stops the road dries over game time and grip returns.
+
+Screenshots taken while driving at medium quality (software GPU) were reviewed for: Kurdistan (60 m) Street near the Iskan tunnel by day, at dusk, at night and in heavy rain, from the chase and the rider's views; the Empire World area; the old town south of the citadel. Problems found and fixed in this pass: rain puddles looked like white patches (now dark water with a sky sheen at grazing angles); lit windows shimmered into speckles at night (an interpolated per-building seed was amplified by the hash — now snapped exactly; window edges are also anti-aliased); mirrors showed mostly sky (re-aimed along the road); the headlight beam was too short.
+
+Performance on the software GPU (no real GPU available): medium quality with the real city, shadows, mirrors and post-processing takes about 4–6 s per frame there, against about 1.9 s before the real buildings. This says nothing reliable about real phones; it does show the city costs roughly 2–3× more to draw, so the automatic quality setting and the mirror and traffic options matter on weak devices.
 
 ## Covered by the API tests (`tests/api.test.ts`, `tests/geo.test.ts`)
 
