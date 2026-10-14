@@ -22,13 +22,21 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        part: [t0, t1, t2, t3, t4, t5, t6, t7, t8, places]
+        part: [t0, t1, t2, t3, t4, t5, t6, t7, t8, places, b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11]
     steps:
       - name: Query Overpass
         run: |
           S=36.150; N=36.230; W=43.950; E=44.065
           part=${{ matrix.part }}
-          if [ "$part" = places ]; then
+          if [ "${part#b}" != "$part" ]; then
+            # buildings (footprints with levels, heights, names), trees, parks and land use over the play
+            # area, 4 x 3 tiles
+            BS=36.168; BN=36.208; BW=43.960; BE=44.028
+            i=${part#b}; r=$((i / 4)); c=$((i % 4))
+            s=$(echo "$BS + ($BN - $BS) * $r / 3" | bc -l); n=$(echo "$BS + ($BN - $BS) * ($r + 1) / 3" | bc -l)
+            w=$(echo "$BW + ($BE - $BW) * $c / 4" | bc -l); e=$(echo "$BW + ($BE - $BW) * ($c + 1) / 4" | bc -l)
+            q=$(printf '[out:json][timeout:240];(way["building"](%.5f,%.5f,%.5f,%.5f);relation["building"](%.5f,%.5f,%.5f,%.5f);node["natural"="tree"](%.5f,%.5f,%.5f,%.5f);way["leisure"~"^(park|garden|pitch|playground)$"](%.5f,%.5f,%.5f,%.5f);way["landuse"~"^(grass|retail|commercial|residential|construction)$"](%.5f,%.5f,%.5f,%.5f););out geom tags;' $s $w $n $e $s $w $n $e $s $w $n $e $s $w $n $e $s $w $n $e)
+          elif [ "$part" = places ]; then
             B="$S,$W,$N,$E"
             q="[out:json][timeout:240];(nwr[\"name\"][\"amenity\"]($B);nwr[\"name\"][\"shop\"]($B);nwr[\"name\"][\"tourism\"]($B);nwr[\"name\"][\"office\"]($B);nwr[\"name\"][\"leisure\"]($B);nwr[\"name\"][\"building\"]($B);nwr[\"name\"][\"landuse\"=\"residential\"]($B);nwr[\"name\"][\"place\"]($B););out center tags;"
           else
@@ -69,9 +77,11 @@ jobs:
           ls -la parts
           mkdir -p data/osm
           jq -s '{elements: (map(.elements) | add | unique_by(.id))}' parts/t*.json > data/osm/streets.json
+          if ls parts/b*.json > /dev/null 2>&1; then jq -s '{elements: (map(.elements) | add | unique_by(.type + (.id | tostring)))}' parts/b*.json > data/osm/buildings.json; echo "buildings: $(jq '.elements | length' data/osm/buildings.json) elements from $(ls parts/b*.json | wc -l) of 12 tiles"; fi
           cp parts/places.json data/osm/places.json
           echo "streets: $(jq '.elements | length' data/osm/streets.json) ways from $(ls parts/t*.json | wc -l) of 9 tiles"
           gzip -9f data/osm/streets.json data/osm/places.json
+          [ -f data/osm/buildings.json ] && gzip -9f data/osm/buildings.json
           echo "Data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright. Fetched $(date -u +%F) with .github/workflows/osm-fetch.yml ($(ls parts/t*.json | wc -l) of 9 street tiles)." > data/osm/README.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
