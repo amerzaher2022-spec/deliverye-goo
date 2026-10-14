@@ -1,0 +1,75 @@
+# Fetches free CC0 materials and sky images from Poly Haven (https://polyhaven.com, CC0: free for any
+# use, no attribution required) onto the `asset-candidates` branch, for picking and converting into
+# web/public. Step "list" stores a manifest and thumbnails per category; step "download" stores the
+# 1k/2k files of the chosen ids.
+name: Fetch CC0 assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: list or download
+        default: list
+      ids:
+        description: space-separated Poly Haven ids (download step)
+        default: ''
+  push:
+    branches: [main]
+    paths: [.github/workflows/assets-fetch.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Fetch
+        env:
+          STEP: ${{ github.event.inputs.step || 'list' }}
+          IDS: ${{ github.event.inputs.ids }}
+        run: |
+          set -e
+          mkdir -p /tmp/out
+          UA="erbil-delivery-world/0.1 (github actions)"
+          if [ "$STEP" = list ]; then
+            for cat in asphalt road concrete plaster brick sidewalk tiles rock sand dirt metal wood; do
+              curl -sS -A "$UA" "https://api.polyhaven.com/assets?t=textures&c=$cat" -o /tmp/out/textures_$cat.json || true
+            done
+            for cat in urban outdoor sunrise-sunset partly-cloudy clear skies midday; do
+              curl -sS -A "$UA" "https://api.polyhaven.com/assets?t=hdris&c=$cat" -o /tmp/out/hdris_$cat.json || true
+            done
+            mkdir -p /tmp/out/thumbs
+            for f in /tmp/out/*.json; do
+              for id in $(jq -r 'keys[]' "$f" 2>/dev/null | head -40); do
+                [ -f /tmp/out/thumbs/$id.webp ] || curl -sS -A "$UA" "https://cdn.polyhaven.com/asset_img/thumbs/$id.png?width=256&height=256" -o /tmp/out/thumbs/$id.png || true
+              done
+            done
+          else
+            for id in $IDS; do
+              curl -sS -A "$UA" "https://api.polyhaven.com/files/$id" -o /tmp/out/$id.files.json
+              mkdir -p /tmp/out/$id
+              # textures: 1k colour, OpenGL normal, roughness, AO; HDRIs: 2k .hdr and 4k tonemapped .jpg
+              for path in '.Diffuse["1k"].jpg.url' '.nor_gl["1k"].jpg.url' '.Rough["1k"].jpg.url' '.AO["1k"].jpg.url' '.hdri["2k"].hdr.url' '.tonemapped.url'; do
+                url=$(jq -r "$path // empty" /tmp/out/$id.files.json 2>/dev/null || true)
+                [ -n "$url" ] && curl -sS -A "$UA" "$url" -o "/tmp/out/$id/$(basename "$url")" || true
+              done
+              ls -la /tmp/out/$id
+            done
+          fi
+      - name: Commit to asset-candidates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin asset-candidates || true
+          if git rev-parse --verify origin/asset-candidates >/dev/null 2>&1; then git checkout -B asset-candidates origin/asset-candidates; else git checkout --orphan asset-candidates && git rm -rf . -q; fi
+          mkdir -p polyhaven
+          cp -r /tmp/out/. polyhaven/
+          echo "Poly Haven assets (CC0, https://polyhaven.com/license). Candidates only; the chosen ones are converted into web/public." > polyhaven/README.txt
+          git add polyhaven
+          git commit -m "Poly Haven CC0 candidates (${{ github.event.inputs.step || 'list' }})" || echo nothing
+          git push origin asset-candidates
