@@ -1,0 +1,10 @@
+Materials and sky from Poly Haven (https://polyhaven.com), CC0 1.0: free for any use, no attribution required.
+asphalt: asphalt_02
+asphalt_worn: aerial_asphalt_01
+pavers: concrete_pavers_02
+paving: concrete_pavement
+plaster: beige_wall_001
+plaster_smooth: plastered_wall_02
+sand: dense_sand
+shutter: painted_metal_shutter
+sky: kloofendal_48d_partly_cloudy_puresky

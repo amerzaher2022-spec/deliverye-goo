@@ -357,7 +357,7 @@ export class Traffic {
       }
       const im = new THREE.InstancedMesh(geo, fallback || !mat ? new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4 }) : mat, count);
       im.frustumCulled = false;
-      im.castShadow = this.quality === 'high';
+      im.castShadow = this.quality !== 'low';
       im.receiveShadow = true;
       this.meshes.set(kind, im);
       this.group.add(im);

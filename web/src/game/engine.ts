@@ -15,6 +15,8 @@ import { MerchantView, merchantFrame, roleFor, targetBeacon } from './merchants'
 import { Vehicle, type DriveInput } from './vehicle';
 import { ribbon, v3, World, type Quality } from './world';
 import { Traffic } from './traffic';
+import { PostProcess } from './post';
+import { sky } from './pbr';
 import { buildLandmarks, buildSigns, landmarkFootprints } from './landmarks';
 
 export type CameraMode = 'chase' | 'far' | 'rider' | 'showcase';
@@ -46,9 +48,9 @@ export interface EngineCallbacks {
 }
 
 const QUALITY = {
-  low: { ratio: 1, fog: 300, shadows: false },
-  medium: { ratio: 1.5, fog: 520, shadows: false },
-  high: { ratio: 2, fog: 800, shadows: true },
+  low: { ratio: 1, fog: 300, shadows: false, shadowMap: 0, shadowSpan: 0 },
+  medium: { ratio: 1.5, fog: 520, shadows: true, shadowMap: 1024, shadowSpan: 45 },
+  high: { ratio: 2, fog: 800, shadows: true, shadowMap: 2048, shadowSpan: 70 },
 } as const;
 
 export class Engine {
@@ -60,6 +62,10 @@ export class Engine {
   private merchants = new Map<number, MerchantView>();
   private crowd = new Crowd();
   private traffic: Traffic | null = null;
+  /** direction towards the sun (from the sky photo) and the horizon colour for the haze */
+  private sunDir = new THREE.Vector3(-150, 160, 110).normalize();
+  private horizon = '#d8dcdb';
+  private post!: PostProcess;
   private graded = false;
   private redAt = 0;
   private lightAt = 0;
@@ -108,25 +114,38 @@ export class Engine {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: opts.quality !== 'low', powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.toneMappingExposure = 0.92;
     this.applyQuality();
 
-    // image-based lighting gives the vehicles believable reflections
+    // image-based lighting: the photographed sky lights and reflects in everything (a studio probe
+    // when the sky files are missing)
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.55;
+    const photoSky = sky();
+    if (photoSky) {
+      this.scene.environment = pmrem.fromEquirectangular(photoSky.environment).texture;
+      this.scene.environmentIntensity = 0.6;
+      this.scene.background = photoSky.background;
+      this.scene.backgroundRotation.set(0, 0, 0);
+      this.sunDir.copy(photoSky.sun);
+      this.horizon = photoSky.horizon;
+      (this.scene.fog as THREE.Fog | null)?.color.set(this.horizon);
+    } else {
+      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environmentIntensity = 0.55;
+    }
     pmrem.dispose();
 
     this.scene.add(new THREE.HemisphereLight('#d4e3f2', '#9a8662', 0.95));
-    this.sun.position.set(-150, 160, 110);
-    this.sun.shadow.mapSize.set(2048, 2048);
-    const sc = this.sun.shadow.camera;
-    sc.left = sc.bottom = -70;
-    sc.right = sc.top = 70;
-    sc.near = 10;
-    sc.far = 500;
+    this.sun.position.copy(this.sunDir).multiplyScalar(260);
+    this.sun.shadow.camera.near = 10;
+    this.sun.shadow.camera.far = 500;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.03;
+    this.applyShadowSize();
     this.scene.add(this.sun, this.sun.target);
-    this.buildSky();
+    this.post = new PostProcess(this.renderer, this.scene, this.camera, this.quality);
+    if (!photoSky) this.buildSky();
+    else this.sky = new THREE.Mesh(new THREE.SphereGeometry(1, 4, 2), new THREE.MeshBasicMaterial({ visible: false }));
 
     this.routeTex = chevronTexture();
     this.buildWorld(merchants);
@@ -144,6 +163,21 @@ export class Engine {
 
   // ---- setup ---------------------------------------------------------------
 
+  /** Shadow map resolution and the area it covers around the player (smaller on phones). */
+  private applyShadowSize() {
+    const q = QUALITY[this.quality];
+    if (!q.shadows) return;
+    if (this.sun.shadow.mapSize.x !== q.shadowMap) {
+      this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+    const sc = this.sun.shadow.camera;
+    sc.left = sc.bottom = -q.shadowSpan;
+    sc.right = sc.top = q.shadowSpan;
+    sc.updateProjectionMatrix();
+  }
+
   private applyQuality() {
     const q = QUALITY[this.quality];
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.ratio));
@@ -151,7 +185,7 @@ export class Engine {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.sun.castShadow = q.shadows;
     // light summer haze, matching the sky at the horizon
-    this.scene.fog = new THREE.Fog('#d8dcdb', q.fog * 0.42, q.fog);
+    this.scene.fog = new THREE.Fog(this.horizon, q.fog * 0.42, q.fog);
     this.camera.far = q.fog + 50;
     this.camera.updateProjectionMatrix();
   }
@@ -300,6 +334,9 @@ export class Engine {
     if (q === this.quality) return;
     this.quality = q;
     this.applyQuality();
+    this.applyShadowSize();
+    this.post.setQuality(q);
+    this.resize();
     const list = [...this.merchants.values()].map((v) => v.merchant);
     this.buildWorld(list);
     this.applyRunMarkers();
@@ -478,6 +515,7 @@ export class Engine {
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
+    this.post?.setSize(w, h);
     this.camera.aspect = w / h;
     // wider view in portrait so the road ahead stays visible
     this.baseFov = w < h ? 70 : 55;
@@ -512,7 +550,7 @@ export class Engine {
     this.elapsed += dt;
     const t = this.elapsed;
     if (!this.paused) this.update(dt, t);
-    this.renderer.render(this.scene, this.camera);
+    this.post.render();
   };
 
   private update(dt: number, t: number) {
@@ -698,7 +736,7 @@ export class Engine {
     this.sky.position.copy(this.camera.position);
     this.sky.scale.setScalar(this.camera.far * 0.9);
     if (this.sun.castShadow) {
-      this.sun.position.set(v.x - 120, 220, -v.y + 80);
+      this.sun.position.set(v.x + this.sunDir.x * 260, this.sunDir.y * 260, -v.y + this.sunDir.z * 260);
       this.sun.target.position.set(v.x, 0, -v.y);
     }
   }

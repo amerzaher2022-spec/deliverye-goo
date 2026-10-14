@@ -12,6 +12,7 @@ import type { DistrictData } from '../../../shared/types';
 import { BoxGrid, boxesOverlap, pointInPolygon, type Box } from './collision';
 import { cloneNode, hasModel, parkedMaterial } from './assets';
 import { ChunkedInstances } from './chunked';
+import { photoTexture, type PhotoSet } from './pbr';
 import { parkedCarGeometries } from './models';
 import { barrierTexture, facadeTexture, groundTexture, roadTexture, sidewalkTexture, type FacadeStyle } from './textures';
 
@@ -133,12 +134,47 @@ const JERSEY: [number, number][] = [
  * below "high" quality an unlit material with the lit colour baked in looks the
  * same and costs far less per pixel on phones. "high" keeps Lambert for shadows.
  */
-export function surfaceMaterial(quality: Quality, params: { map?: THREE.Texture; color?: string; polygonOffsetFactor?: number }) {
+/**
+ * Ground surfaces: unlit at low quality; lit and shadowed at medium (with the photographed normal map
+ * when there is one); physically based at high (normal and roughness maps). `relief` names the photo
+ * set whose normal/roughness maps match `map`, and how many photo tiles one tile of `map` holds.
+ */
+export function surfaceMaterial(
+  quality: Quality,
+  params: { map?: THREE.Texture; color?: string; polygonOffsetFactor?: number; relief?: { set: PhotoSet; tiles: number; strength?: number } },
+) {
   const po = params.polygonOffsetFactor ? { polygonOffset: true, polygonOffsetFactor: params.polygonOffsetFactor } : {};
   const map = params.map ? { map: params.map } : {};
-  if (quality === 'high') return new THREE.MeshLambertMaterial({ ...map, color: params.color ?? '#ffffff', ...po });
-  const color = new THREE.Color(params.color ?? '#ffffff').multiplyScalar(0.84);
-  return new THREE.MeshBasicMaterial({ ...map, color, ...po });
+  if (quality === 'low') {
+    const color = new THREE.Color(params.color ?? '#ffffff').multiplyScalar(0.84);
+    return new THREE.MeshBasicMaterial({ ...map, color, ...po });
+  }
+  // relief maps follow the colour map's tiling (same repeat object, scaled for photo tiles per map tile)
+  const relief = (kind: 'nrm' | 'rgh') => {
+    if (!params.relief || !params.map) return null;
+    const t = photoTexture(params.relief.set, kind);
+    if (!t) return null;
+    const base = params.map.repeat;
+    const k = params.relief.tiles;
+    Object.defineProperty(t, 'repeat', { get: () => new THREE.Vector2(base.x * k, base.y * k), configurable: true });
+    t.matrixAutoUpdate = true;
+    return t;
+  };
+  const normalMap = relief('nrm');
+  const strength = params.relief?.strength ?? 1;
+  if (quality === 'medium') {
+    return new THREE.MeshLambertMaterial({ ...map, color: params.color ?? '#ffffff', ...po, ...(normalMap ? { normalMap, normalScale: new THREE.Vector2(strength, strength) } : {}) });
+  }
+  const roughnessMap = relief('rgh');
+  return new THREE.MeshStandardMaterial({
+    ...map,
+    color: params.color ?? '#ffffff',
+    ...po,
+    roughness: 1,
+    metalness: 0,
+    ...(normalMap ? { normalMap, normalScale: new THREE.Vector2(strength, strength) } : {}),
+    ...(roughnessMap ? { roughnessMap } : {}),
+  });
 }
 
 /** Unit box (base at y=0) whose vertex colours darken towards the ground: cheap contact shading. */
@@ -262,16 +298,16 @@ export class World {
     const holes = this.trenchOutlines();
     let ground: THREE.Mesh;
     if (holes.length) {
-      tex.repeat.set(1 / 40, 1 / 40);
+      tex.repeat.set(1 / 12, 1 / 12);
       const x0 = minX - margin;
       const y0 = minY - margin;
       const shape = new THREE.Shape([new THREE.Vector2(x0, y0), new THREE.Vector2(x0 + w, y0), new THREE.Vector2(x0 + w, y0 + h), new THREE.Vector2(x0, y0 + h)]);
       for (const hole of holes) shape.holes.push(new THREE.Path(hole.map((p) => new THREE.Vector2(p.x, p.y))));
-      ground = new THREE.Mesh(new THREE.ShapeGeometry(shape), surfaceMaterial(this.opts.quality, { map: tex }));
+      ground = new THREE.Mesh(new THREE.ShapeGeometry(shape), surfaceMaterial(this.opts.quality, { map: tex, relief: { set: 'sand', tiles: 1 } }));
       ground.rotation.x = -Math.PI / 2;
     } else {
-      tex.repeat.set(w / 40, h / 40);
-      ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), surfaceMaterial(this.opts.quality, { map: tex }));
+      tex.repeat.set(w / 12, h / 12);
+      ground = new THREE.Mesh(new THREE.PlaneGeometry(w, h), surfaceMaterial(this.opts.quality, { map: tex, relief: { set: 'sand', tiles: 1 } }));
       ground.rotation.x = -Math.PI / 2;
       ground.position.set((minX + maxX) / 2, 0, -(minY + maxY) / 2);
     }
@@ -447,7 +483,7 @@ export class World {
 
   private buildRoads() {
     const q = this.opts.quality;
-    const walkMat = q === 'low' ? surfaceMaterial(q, { color: '#c2bcb0' }) : surfaceMaterial(q, { map: sidewalkTexture() });
+    const walkMat = q === 'low' ? surfaceMaterial(q, { color: '#c2bcb0' }) : surfaceMaterial(q, { map: sidewalkTexture(), color: '#cfc9be', relief: { set: 'pavers', tiles: 1 } });
     const barrierGeos: THREE.BufferGeometry[] = [];
     const planterAt: { x: number; y: number; a: number }[] = [];
     const junc = this.junctions();
@@ -466,7 +502,8 @@ export class World {
       const style = road.oneway ? 'secondary' : road.kind;
       let mat = mats.get(style);
       if (!mat) {
-        mat = surfaceMaterial(q, { map: roadTexture(style), polygonOffsetFactor: -1 });
+        // the photographed asphalt is pale: darken it to sun-baked Erbil asphalt
+        mat = surfaceMaterial(q, { map: roadTexture(style), color: '#77787c', polygonOffsetFactor: -1, relief: { set: style === 'local' ? 'asphalt_worn' : 'asphalt', tiles: 3, strength: 0.8 } });
         mats.set(style, mat);
       }
       const mesh = new THREE.Mesh(ribbon(points, road.width, ROAD_Y[road.kind] ?? 0.08, road.width * 1.2), mat);
@@ -489,7 +526,7 @@ export class World {
       }
     }
     this.addMerged(sideGeos, walkMat);
-    this.addMerged(curbGeos, surfaceMaterial(q, { color: '#d9d5cc' }));
+    this.addMerged(curbGeos, surfaceMaterial(q, { color: '#b8b3aa' }));
     this.addMerged(medianGeos, surfaceMaterial(q, { color: '#cfcac0' }));
     this.addMerged(medianTop, surfaceMaterial(q, { color: '#76805a' }));
     if (barrierGeos.length) {
@@ -564,7 +601,7 @@ export class World {
     // junction asphalt: the same worn surface as the roads, without lane paint
     const junctionTex = roadTexture('secondary', false);
     junctionTex.repeat.set(2, 2);
-    this.addMerged(discs, surfaceMaterial(q, { map: junctionTex, polygonOffsetFactor: -2 }));
+    this.addMerged(discs, surfaceMaterial(q, { map: junctionTex, color: '#77787c', polygonOffsetFactor: -2, relief: { set: 'asphalt', tiles: 3, strength: 0.8 } }));
     this.addMerged(zebras, surfaceMaterial(q, { color: '#e6e3da', polygonOffsetFactor: -3 }));
   }
 
@@ -664,7 +701,7 @@ export class World {
     for (let k = 0 as 0 | 1 | 2; k <= 2; k = (k + 1) as 0 | 1 | 2) {
       const list = placed.filter((b) => b.kind === k);
       // list is in index order (indices were handed out per kind as buildings were placed)
-      const mesh = new ChunkedInstances(geo, materials[k]!, list.map(at), this.group, { castShadow: this.opts.quality === 'high' });
+      const mesh = new ChunkedInstances(geo, materials[k]!, list.map(at), this.group, { castShadow: this.opts.quality !== 'low' });
       for (const b of list) {
         mesh.setMatrixAt(b.index, this.matrixFor(b, m));
         const pal = PALETTE[k]!;
@@ -826,7 +863,7 @@ export class World {
       fronds.push(f);
     }
     const crown = mergeGeometries(fronds);
-    const palmShadow = { castShadow: this.opts.quality === 'high' };
+    const palmShadow = { castShadow: this.opts.quality !== 'low' };
     const trunks = new ChunkedInstances(trunk, new THREE.MeshLambertMaterial({ color: 0x7b6650 }), palms.map(planeOf), this.group, palmShadow);
     const crowns = new ChunkedInstances(crown, new THREE.MeshLambertMaterial({ color: 0x4f6b3a, side: THREE.DoubleSide }), palms.map(planeOf), this.group, palmShadow);
     palms.forEach((m, i) => {

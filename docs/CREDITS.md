@@ -8,7 +8,7 @@ Every 3D model, texture, logo decal and portrait in this game was made for Erbil
 | Classic yellow scooter, black city bicycle | Modelled in code | `tools/models/vehicles.py` |
 | Courier hatchback, saloon, SUV, pickup | Lofted bodies with lights, grilles, seams and wheels shaped onto them; the street versions are light meshes with the full model's detail baked into a texture | `tools/models/cars.py`, `parked.py` |
 | Uniform badge, backpack print, car door livery, pizza lid print | Rendered from HTML with the IBM Plex Sans Arabic font (SIL Open Font License, already used by the app) | `tools/models/render-decals.mjs` |
-| Roads, barriers, pavements | Procedural canvas textures in the game | `web/src/game/textures.ts` |
+| Roads, barriers, pavements | Procedural canvas textures in the game, over photographed materials (below) | `web/src/game/textures.ts` |
 
 The cars and the scooter follow familiar vehicle types: a compact hatchback, a mid-size saloon, a large 4×4, a double-cab pickup and a vintage scooter. They carry no manufacturer names, badges or logos.
 
@@ -26,4 +26,8 @@ A full build takes about an hour on four CPU cores, mostly baking the people. Ad
 ## Map data
 
 Street geometry, tunnels, bridges, business names and landmark positions come from OpenStreetMap: © OpenStreetMap contributors, available under the Open Database License (ODbL), https://www.openstreetmap.org/copyright. The raw extract is in `data/osm/`. The game shows the attribution in its settings, and the dashboard map shows it too. Real business names appear only as street signs and landmarks; none of them is a playable merchant, and none of their logos is used. Before a commercial launch, confirm that businesses shown by name (for example Samad restaurant) are happy to appear.
+
+## Photographed materials and sky
+
+Asphalt, pavers, paving, plaster, sand, a metal shutter and the sky panorama come from Poly Haven (https://polyhaven.com) under CC0 1.0: free for any use, including commercial, with no attribution required. The list is in `web/public/textures/CREDITS.txt`. The originals are on the `asset-candidates` branch (fetched by `.github/workflows/assets-fetch.yml`), and are converted with `tools/assets/convert_polyhaven.py`.
 

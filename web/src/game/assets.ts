@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { loadPhotos } from './pbr';
 
 export type ModelFile = 'scooter' | 'bicycle' | 'people' | 'car' | 'parked';
 
@@ -51,6 +52,7 @@ export function loadModels(timeoutMs = 25000): Promise<void> {
     .catch((e: unknown) => console.warn('parked car atlas not loaded', e));
   const all = Promise.all([
     atlasLoad,
+    loadPhotos(),
     ...files.map((f) =>
       loader
         .loadAsync(`/models/${f}.glb`)

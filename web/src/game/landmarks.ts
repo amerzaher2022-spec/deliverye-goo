@@ -322,7 +322,7 @@ export function buildLandmarks(district: DistrictData, graph: RoadGraph, quality
       board.lookAt(t.p.x + t.front.x * 40, h - 4, -(t.p.y + t.front.y * 40));
       group.add(board);
     });
-    mesh.castShadow = quality === 'high';
+    mesh.castShadow = quality !== 'low';
     mesh.receiveShadow = true;
     group.add(mesh);
   }

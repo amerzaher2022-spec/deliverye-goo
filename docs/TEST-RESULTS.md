@@ -121,6 +121,25 @@ Checked after replacing the scooter, bicycle, riders and people:
   - the scooter and car first-person views, with their speedometers
 - Medium quality in the test browser: the menu loads in about 13 s, two frames take 1.3–1.4 s, and the scene draws about 670k triangles. Buildings and props are drawn per map square, and parked cars were thinned out, to reach these numbers.
 
+## Photographed materials, sky lighting and post-processing
+
+- Added:
+  - Poly Haven (CC0) asphalt, pavers, sand and plaster
+  - a photographed sky that lights the scene (HDRI image-based lighting) and sets the sun direction and the haze colour
+  - shadows at medium quality
+  - post-processing: multisampling, colour grade and vignette, plus ambient occlusion (GTAO) and bloom at high quality
+- typecheck, the 29 API tests, the build and the 4 browser tests pass
+- Frame cost at medium quality in the test browser (software GPU, 1366×820), per frame:
+
+| What is drawn | Time per frame |
+|---|---|
+| everything | 1.9 s |
+| without shadows | 1.66 s |
+| without shadows or post-processing | 1.42 s |
+| before this change | about 0.7 s |
+
+  Most of the increase comes from lit, normal-mapped ground instead of unlit ground. A software renderer exaggerates that; real phones have not been measured yet. Adaptive quality drops to low (unlit, no effects) when a device stays under 24 fps.
+
 ## Not tested
 
 - Real iPhone and Android hardware (touch feel, GPU performance, Safari quirks), including frame rate with the new models and the pavement crowd

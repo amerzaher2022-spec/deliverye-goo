@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { fitText, paintSign, roundRect, type SignOptions } from '../signPainter';
+import { photo, photoTexture } from './pbr';
 
 const loader = new Map<string, Promise<HTMLImageElement | null>>();
 
@@ -91,8 +92,11 @@ export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local'
   const r = rng(kind.length * 977 + 13);
   ctx.fillStyle = kind === 'local' ? '#5a5b5d' : '#535457';
   ctx.fillRect(0, 0, W, W);
+  // a photographed asphalt surface (3 x 3 tiles) when available, else painted grain
+  const base = photo(kind === 'local' ? 'asphalt_worn' : 'asphalt');
+  if (base) for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) ctx.drawImage(base, (x * W) / 3, (y * W) / 3, W / 3 + 1, W / 3 + 1);
   // large soft mottling (wraps vertically so the tile repeats cleanly)
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < (base ? 25 : 70); i++) {
     const x = r() * W;
     const y = r() * W;
     const rad = 40 + r() * 160;
@@ -106,8 +110,8 @@ export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local'
     }
   }
   // aggregate grain
-  noise(ctx, W, W, 0.22, 60000, kind.length);
-  for (let i = 0; i < 9000; i++) {
+  if (!base) noise(ctx, W, W, 0.22, 60000, kind.length);
+  for (let i = 0; i < (base ? 0 : 9000); i++) {
     ctx.fillStyle = `rgba(${r() < 0.5 ? '200,198,192' : '15,15,16'},${0.08 + r() * 0.12})`;
     ctx.fillRect(r() * W, r() * W, 1, 1);
   }
@@ -148,7 +152,7 @@ export function roadTexture(kind: 'arterial' | 'primary' | 'secondary' | 'local'
     ctx.strokeRect(x, y, w, h);
   }
   // cracks and tar seal
-  for (let i = 0; i < 14; i++) crack(ctx, r, r() * W, r() * W, 80 + r() * 260, 1 + r() * 1.5, 'rgba(15,15,17,0.55)');
+  for (let i = 0; i < (base ? 5 : 14); i++) crack(ctx, r, r() * W, r() * W, 80 + r() * 260, 1 + r() * 1.5, 'rgba(15,15,17,0.55)');
   for (let i = 0; i < 6; i++) crack(ctx, r, r() * W, r() * W, 120 + r() * 300, 5 + r() * 4, 'rgba(22,22,24,0.45)');
   // longitudinal seam where two paving passes meet
   ctx.fillStyle = 'rgba(20,20,22,0.35)';
@@ -232,6 +236,9 @@ export function barrierTexture() {
 }
 
 export function groundTexture(color: string, seed: number) {
+  // the open ground: photographed sandy soil when available
+  const sand = color === '#c9b893' ? photoTexture('sand', 'col') : null;
+  if (sand) return sand;
   const [c, ctx] = canvas(128, 128);
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, 128, 128);
@@ -240,6 +247,8 @@ export function groundTexture(color: string, seed: number) {
 }
 
 export function sidewalkTexture() {
+  const pavers = photoTexture('pavers', 'col');
+  if (pavers) return pavers;
   const [c, ctx] = canvas(256, 256);
   ctx.fillStyle = '#c9c3b6';
   ctx.fillRect(0, 0, 256, 256);
@@ -350,6 +359,7 @@ export function facadeTexture(style: FacadeStyle) {
   const rnd = rng(911);
   ctx.fillStyle = '#efe8da';
   ctx.fillRect(0, 0, 512, 256);
+  const wall = photo('plaster');
   // limestone blocks, each a little different
   for (let y = 0; y < 236; y += 30) {
     const off = (y / 30) % 2 ? 0 : 40;
@@ -360,6 +370,15 @@ export function facadeTexture(style: FacadeStyle) {
     }
   }
   noise(ctx, 512, 256, 0.05, 2600, 5);
+  if (wall) {
+    // real stone grain over the block pattern
+    ctx.globalAlpha = 0.55;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(wall, 0, 0, 256, 256);
+    ctx.drawImage(wall, 256, 0, 256, 256);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
   ctx.fillStyle = 'rgba(120,105,85,0.35)';
   for (let y = 0; y < 236; y += 30) ctx.fillRect(0, y, 512, 1);
   // floor band
