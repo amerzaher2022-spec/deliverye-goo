@@ -615,7 +615,7 @@ export class Engine {
     if (!this.paused) this.update(dt, t);
     if (this.mirrors) {
       this.mirrors.group.visible = this.mirrorsOn;
-      if (this.mirrorsOn && this.cameraMode !== 'showcase') this.mirrors.render(this.renderer, this.scene, this.vehicle.frame, this.cameraMode === 'rider');
+      if (this.mirrorsOn && this.cameraMode !== 'showcase') this.mirrors.render(this.renderer, this.scene, this.vehicle.frame, this.cameraMode === 'rider', this.vehicle.object);
     }
     this.post.render();
   };

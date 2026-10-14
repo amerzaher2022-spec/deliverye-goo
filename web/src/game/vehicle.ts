@@ -326,7 +326,8 @@ export class Vehicle {
     this.lean.rotation.x = this.pitch;
     this.lean.position.y = this.heave;
     // a fallen bike lies on the ground: lower the pivot so it does not float
-    if (d.bike) this.lean.position.y += -Math.abs(Math.sin(this.leanAngle)) * (this.fallen ? 0.25 : 0);
+    // a bike on its side rests on its handlebar and footboard, not on the wheel contact line
+    if (d.bike && this.fallen) this.lean.position.y += Math.abs(Math.sin(this.leanAngle)) * 0.12;
     void input;
   }
 

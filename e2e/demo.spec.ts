@@ -22,7 +22,7 @@ async function adminLogin(page: Page) {
 
 async function clickMapAt(page: Page, lat: number, lng: number) {
   await page.evaluate(([la, ln]) => (window as any).__dgMap.setView([la, ln], 18, { animate: false }), [lat, lng]);
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(800);
   const pt = await page.evaluate(([la, ln]) => {
     const p = (window as any).__dgMap.latLngToContainerPoint([la, ln]);
     return { x: p.x, y: p.y };
@@ -37,8 +37,13 @@ async function addBusinessOnMap(
 ) {
   await page.getByTestId('tab-map').click();
   await page.getByTestId('add-merchant').click();
-  await clickMapAt(page, opts.lat, opts.lng);
   const editor = page.getByTestId('merchant-editor');
+  // the map can still be settling right after the view jumps (slow CI machines): click again if the
+  // editor did not open
+  for (let attempt = 0; attempt < 3 && !(await editor.isVisible()); attempt++) {
+    await clickMapAt(page, opts.lat, opts.lng);
+    await editor.waitFor({ state: 'visible', timeout: 6000 }).catch(() => undefined);
+  }
   await expect(editor).toBeVisible();
   await page.getByTestId('f-name_ar').fill(opts.ar);
   await page.getByTestId('f-name_en').fill(opts.en);

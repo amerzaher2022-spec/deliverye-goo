@@ -200,12 +200,10 @@ export function carDash(): Dash {
   const mirror = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.07, 0.025), plastic);
   mirror.position.set(0, 1.33, 0.36);
   mirror.rotation.x = 0.15;
-  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.23, 0.055), new THREE.MeshStandardMaterial({ color: '#2b3138', roughness: 0.2, metalness: 0.6 }));
-  glass.position.set(0, 1.33, 0.346);
-  glass.rotation.set(0.15, Math.PI, 0);
+  // its glass is a live view (mirrors.ts)
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.08), plastic);
   stem.position.set(0, 1.39, 0.34);
-  group.add(mirror, glass, stem);
+  group.add(mirror, stem);
 
   group.traverse((o) => {
     const m = o as THREE.Mesh;

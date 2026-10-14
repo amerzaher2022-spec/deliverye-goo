@@ -30,7 +30,7 @@ const DEFS: Record<'scooter' | 'car', MirrorDef[]> = {
     { pos: new THREE.Vector3(1.0, 1.0, 0.8), w: 0.2, h: 0.13, round: false, fov: 26, out: 0.12 },
     { pos: new THREE.Vector3(-1.0, 1.0, 0.8), w: 0.2, h: 0.13, round: false, fov: 26, out: -0.12 },
     // interior mirror (cockpit.ts draws its housing)
-    { pos: new THREE.Vector3(0, 1.33, 0.343), w: 0.23, h: 0.055, round: false, fov: 12, out: 0 },
+    { pos: new THREE.Vector3(0, 1.33, 0.33), w: 0.23, h: 0.055, round: false, fov: 12, out: 0 },
   ],
 };
 
@@ -109,7 +109,7 @@ export class Mirrors {
    * Render the mirrors that are due this frame. `owner` is the object the mirrors are mounted on
    * (the vehicle's lean group) so they follow its lean and pitch.
    */
-  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, owner: THREE.Object3D, active: boolean) {
+  render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, owner: THREE.Object3D, active: boolean, body?: THREE.Object3D) {
     this.frame++;
     if (!this.list.length) return;
     const every = active ? this.every : Math.max(6, this.every * 3);
@@ -139,8 +139,12 @@ export class Mirrors {
       m.cam.up.set(0, 1, 0).applyQuaternion(q);
       m.cam.lookAt(a.clone().add(dir));
       m.cam.updateMatrixWorld();
+      // the interior mirror looks out through the rear window: leave the car's own (opaque) body and cabin out
+      const inside = m.def.out === 0 && body;
+      if (inside) body.visible = false;
       renderer.setRenderTarget(m.rt);
       renderer.render(scene, m.cam);
+      if (inside) body.visible = true;
     });
     for (const m of this.list) m.glass.visible = true;
     renderer.setRenderTarget(prevTarget);

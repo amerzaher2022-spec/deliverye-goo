@@ -916,6 +916,173 @@ export class World {
     const lampMesh = new ChunkedInstances(mergeGeometries([pole, arm, head]), new THREE.MeshLambertMaterial({ color: 0x5d6268 }), lamps.map(planeOf), this.group);
     lamps.forEach((m, i) => lampMesh.setMatrixAt(i, m));
     lampMesh.finish();
+    this.buildPowerLines(rand);
+    this.buildBillboards(rand);
+  }
+
+  /**
+   * Residential streets: concrete electricity poles on one side, with sagging cables between them and a
+   * transformer on some, as along most of Erbil's neighbourhood streets.
+   */
+  private buildPowerLines(rand: () => number) {
+    if (this.opts.quality === 'low') return;
+    const poles: THREE.Matrix4[] = [];
+    const cable: number[] = [];
+    const boxes: THREE.Matrix4[] = [];
+    for (const { road, points } of this.graph.polylines.filter((pl) => !isGraded(pl.points))) {
+      if (road.kind !== 'local' && road.kind !== 'secondary') continue;
+      const segs = this.segs(points);
+      const total = segs.reduce((a, x) => a + x.len, 0);
+      if (total < 60) continue;
+      const side = rand() < 0.5 ? 1 : -1;
+      let prev: THREE.Vector3[] | null = null;
+      for (let s = 12; s < total - 8; s += 34 + rand() * 6) {
+        const { p, t } = this.pointAt(segs, s);
+        const nx = -t.y * side;
+        const ny = t.x * side;
+        const at = { x: p.x + nx * (road.width / 2 + 0.9), y: p.y + ny * (road.width / 2 + 0.9) };
+        if (this.grid.anyOverlap({ cx: at.x, cy: at.y, ux: 1, uy: 0, hw: 0.25, hd: 0.25 }, 0.3)) {
+          prev = null;
+          continue;
+        }
+        // the cross-arm (local x) spans across the street
+        const yaw = Math.atan2(ny, nx);
+        poles.push(new THREE.Matrix4().compose(new THREE.Vector3(at.x, 0, -at.y), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1)));
+        this.grid.add({ cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: 0.2, hd: 0.2 });
+        // three cables at the cross-arm
+        const tips = [-0.75, 0, 0.75].map((o) => new THREE.Vector3(at.x + nx * o, 8.6, -(at.y + ny * o)));
+        if (prev) {
+          for (let k = 0; k < 3; k++) {
+            const a = prev[k]!;
+            const b = tips[k]!;
+            const n = 8;
+            for (let i = 0; i < n; i++) {
+              const u0 = i / n;
+              const u1 = (i + 1) / n;
+              const sag = (u: number) => -1.1 * 4 * u * (1 - u);
+              cable.push(a.x + (b.x - a.x) * u0, a.y + (b.y - a.y) * u0 + sag(u0), a.z + (b.z - a.z) * u0);
+              cable.push(a.x + (b.x - a.x) * u1, a.y + (b.y - a.y) * u1 + sag(u1), a.z + (b.z - a.z) * u1);
+            }
+          }
+        }
+        prev = tips;
+        if (rand() < 0.12) boxes.push(new THREE.Matrix4().compose(new THREE.Vector3(at.x, 6.2, -at.y), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1)));
+      }
+    }
+    if (!poles.length) return;
+    const pole = new THREE.CylinderGeometry(0.11, 0.17, 9.2, 6);
+    pole.translate(0, 4.6, 0);
+    const arm = new THREE.BoxGeometry(1.8, 0.1, 0.1);
+    arm.translate(0, 8.6, 0);
+    const pm = new ChunkedInstances(mergeGeometries([pole, arm]), new THREE.MeshLambertMaterial({ color: '#a29d93' }), poles.map(planeOf), this.group, { castShadow: this.opts.quality === 'high' });
+    poles.forEach((m, i) => pm.setMatrixAt(i, m));
+    pm.finish();
+    if (boxes.length) {
+      const tx = new THREE.BoxGeometry(0.7, 0.9, 0.55);
+      tx.translate(0, 0, 0.35);
+      const bm = new ChunkedInstances(tx, new THREE.MeshLambertMaterial({ color: '#7d8279' }), boxes.map(planeOf), this.group);
+      boxes.forEach((m, i) => bm.setMatrixAt(i, m));
+      bm.finish();
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(cable, 3));
+    g.computeBoundingSphere();
+    const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#1d1f22' }));
+    lines.frustumCulled = false;
+    this.group.add(lines);
+  }
+
+  /** Roadside billboards on the main roads (invented advertisers, no real brands). */
+  private buildBillboards(rand: () => number) {
+    const ads = [
+      ['هاتف أربيل', 'Erbil Phone · 4G+', '#0e5aa7', '#ffffff'],
+      ['عسل جبلي كردستاني', 'Mountain Honey', '#e0a020', '#2b1a05'],
+      ['شقق للبيع — مشروع النخيل', 'Apartments for sale', '#2f6b3a', '#ffffff'],
+      ['أسرع توصيل في المدينة', 'Fastest delivery in town', '#d0461b', '#ffffff'],
+      ['معرض السيارات الحديث', 'New car showroom', '#1b1d22', '#f2c14e'],
+      ['مستشفى الشفاء الخاص', 'Al-Shifa private hospital', '#ffffff', '#0d6b6b'],
+    ];
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 768;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ads.forEach(([ar, en, bg, fg], i) => {
+      const x = (i % 2) * 512;
+      const y = Math.floor(i / 2) * 256;
+      ctx.fillStyle = bg!;
+      ctx.fillRect(x, y, 512, 256);
+      ctx.fillStyle = fg!;
+      ctx.textAlign = 'center';
+      ctx.font = '700 58px "IBM Plex Sans Arabic", system-ui, sans-serif';
+      ctx.fillText(ar!, x + 256, y + 120, 480);
+      ctx.font = '600 34px system-ui, sans-serif';
+      ctx.fillText(en!, x + 256, y + 190, 480);
+    });
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const posts: THREE.Matrix4[] = [];
+    let n = 0;
+    for (const { road, points } of this.graph.polylines.filter((pl) => !isGraded(pl.points))) {
+      if (road.kind !== 'arterial' && road.kind !== 'primary') continue;
+      const segs = this.segs(points);
+      const total = segs.reduce((a, x) => a + x.len, 0);
+      for (let s = 150 + rand() * 200; s < total - 60; s += 380 + rand() * 300) {
+        const { p, t } = this.pointAt(segs, s);
+        const side = rand() < 0.5 ? 1 : -1;
+        const nx = -t.y * side;
+        const ny = t.x * side;
+        const at = { x: p.x + nx * (road.width / 2 + 5), y: p.y + ny * (road.width / 2 + 5) };
+        if (this.grid.anyOverlap({ cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: 4.5, hd: 1 }, 0.5)) continue;
+        if (this.opts.reserved.some((r) => boxesOverlap(r, { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: 4.5, hd: 1 }, 2))) continue;
+        this.grid.add({ cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: 0.4, hd: 0.4 });
+        posts.push(new THREE.Matrix4().makeTranslation(at.x, 0, -at.y));
+        const ad = n++ % ads.length;
+        const u0 = (ad % 2) * 0.5;
+        const v1 = 1 - Math.floor(ad / 2) / 3;
+        // two faces, one towards each direction of traffic
+        for (const f of [1, -1]) {
+          const fx = t.x * f;
+          const fy = t.y * f;
+          const rx = fy;
+          const ry = -fx;
+          const cx = at.x - fx * 0.25;
+          const cy = at.y - fy * 0.25;
+          const w = 8;
+          const h = 4;
+          const y0 = 6;
+          const c = [
+            [cx - rx * w / 2, y0, cy - ry * w / 2, u0, v1 - 1 / 3],
+            [cx + rx * w / 2, y0, cy + ry * w / 2, u0 + 0.5, v1 - 1 / 3],
+            [cx + rx * w / 2, y0 + h, cy + ry * w / 2, u0 + 0.5, v1],
+            [cx - rx * w / 2, y0 + h, cy - ry * w / 2, u0, v1],
+          ];
+          // facing the traffic coming towards it: the face's normal is -t*f
+          const order = f > 0 ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3];
+          for (const k of order) {
+            const q = c[k]!;
+            pos.push(q[0]!, q[1]!, -q[2]!);
+            uv.push(q[3]!, q[4]!);
+          }
+        }
+      }
+    }
+    if (!posts.length) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.computeVertexNormals();
+    const boards = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, emissive: '#ffffff', emissiveMap: tex, emissiveIntensity: 0.12, side: THREE.DoubleSide }));
+    boards.receiveShadow = true;
+    this.group.add(boards);
+    const post = new THREE.CylinderGeometry(0.35, 0.45, 6.2, 10);
+    post.translate(0, 3.1, 0);
+    const pm = new ChunkedInstances(post, new THREE.MeshLambertMaterial({ color: '#5f646b' }), posts.map(planeOf), this.group, { castShadow: this.opts.quality !== 'low' });
+    posts.forEach((m, i) => pm.setMatrixAt(i, m));
+    pm.finish();
   }
 
   /** Parked cars along kerbs (decorative, but solid). */
