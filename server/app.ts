@@ -140,6 +140,8 @@ export async function buildApp(opts: BuildOptions): Promise<FastifyInstance> {
       root: opts.webDir,
       wildcard: false,
       index: false,
+      // the build writes .br and .gz copies of the larger files (scripts/build-server.mjs)
+      preCompressed: true,
       setHeaders(res, path) {
         if (/\/assets\//.test(path)) res.header('Cache-Control', 'public, max-age=31536000, immutable');
         else res.header('Cache-Control', 'no-cache');

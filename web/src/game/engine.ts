@@ -20,6 +20,7 @@ import { Atmosphere } from './atmosphere';
 import { GameAudio } from './audio';
 import { NightLights } from './nightlights';
 import { Mirrors } from './mirrors';
+import { cullByDistance } from './chunked';
 import { sky } from './pbr';
 import { buildLandmarks, buildSigns, landmarkFootprints } from './landmarks';
 
@@ -103,6 +104,7 @@ export class Engine {
   /** distance outside the carriageway at the last frame (kerb strikes) */
   private prevEdge = -1;
   private prevBrake = 0;
+  private cullAt = -1;
   private lastFrame = performance.now();
   private elapsed = 0;
   private raf = 0;
@@ -663,6 +665,11 @@ export class Engine {
     this.animateBeacons(t);
     this.updateCamera(dt);
     this.updateAtmosphere(dt, t);
+    // small detail is drawn only near the camera
+    if (t - this.cullAt > 0.2 || t < this.cullAt) {
+      this.cullAt = t;
+      cullByDistance(this.camera.position);
+    }
 
     if (this.target && t - this.routeAt.t > 0.4) {
       const moved = Math.hypot(v.x - this.routeAt.x, v.y - this.routeAt.y);

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import type { LocalPoint } from '../../../shared/geo';
 import type { RoadGraph } from '../../../shared/roads';
 import { wetSurface } from './atmosphere';
+import { limitDistance } from './chunked';
 import type { Quality } from './world';
 
 /** atlas cells (128 x 256 px each, eight across) */
@@ -249,6 +250,8 @@ export function buildRoadDetails(
     m.receiveShadow = true;
     m.renderOrder = 1;
     group.add(m);
+    // markings and covers are not visible from far away
+    limitDistance(m, 240);
   }
   return group;
 }

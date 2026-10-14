@@ -11,11 +11,12 @@
 //   3 tower: glass curtain wall with mullions and floor slabs
 //   4 old town: brick and yellow stone, narrow arched windows, wooden doors
 //   5 concrete public building: exposed concrete, regular windows
+//   6 deep concrete grid: square openings in a structural frame (Empire World's curved towers)
 
 import * as THREE from 'three';
 import { photoTexture } from './pbr';
 
-export const FACADE_STYLES = { stone: 0, commercial: 1, house: 2, tower: 3, old: 4, concrete: 5 } as const;
+export const FACADE_STYLES = { stone: 0, commercial: 1, house: 2, tower: 3, old: 4, concrete: 5, grid: 6 } as const;
 export type FacadeStyle = keyof typeof FACADE_STYLES;
 
 /** Uniforms shared by every facade material: how dark it is (0 day .. 1 night) and how wet. */
@@ -32,6 +33,10 @@ const GLSL_HEAD = /* glsl */ `
   varying vec3 vTint;
   varying vec2 vWall;
   varying float vRoof;
+  #ifdef FACADE_DEPTH
+  // view direction in the wall's frame: x along the wall, y up, z into the wall
+  varying vec3 vViewT;
+  #endif
 `;
 
 const GLSL_FRAG_HEAD = /* glsl */ `
@@ -52,27 +57,32 @@ const GLSL_FRAG_HEAD = /* glsl */ `
     vec2 a = clamp((p - lo) / gFw + 0.5, 0.0, 1.0) * clamp((hi - p) / gFw + 0.5, 0.0, 1.0);
     return a.x * a.y;
   }
-`;
+  #ifdef FACADE_DEPTH
+  varying vec3 vViewT;
+  #endif
 
-// Computes, from the wall position in metres, the facade layer at this pixel:
-//   fac.x = glass (0..1), fac.y = frame/metal, fac.z = recess shadow, fac.w = lit window at night
-//   fGround: 1 on a shop front, fSign: sign band
-const GLSL_FACADE = /* glsl */ `
-  gFw = max(fwidth(vWall), vec2(0.004));
-  float fDetail = 1.0 - smoothstep(0.025, 0.08, max(gFw.x, gFw.y));
-  vec4 fac = vec4(0.0);
-  float fGround = 0.0;
-  float fSign = 0.0;
-  float fDoor = 0.0;
+// the facade pattern at wall point W (metres): fac.x glass, fac.y frame, fac.z relief shade, fac.w lit
+void facadeAt(vec2 W, float fDetail, out vec4 fac, out float fGround, out float fSign, out float fDoor) {
+  fac = vec4(0.0);
+  fGround = 0.0;
+  fSign = 0.0;
+  fDoor = 0.0;
   {
     float style = vStyle.x;
     float seed = fSeed();
     float floorH = vStyle.z;
     float shop = vStyle.w;
-    float u = vWall.x;
-    float v = vWall.y;
+    float u = W.x;
+    float v = W.y;
     float groundH = shop > 0.5 ? 4.4 : floorH;
-    if (v > vRoof - 0.05) {
+    if (style > 5.5) {
+      // deep concrete grid (Empire World's curved towers): square openings in a structural frame
+      // nearly square cells, about a storey wide, with slender piers and deeper floor slabs
+      float cw = floorH * 0.92;
+      vec2 q = vec2(fract(u / cw) * cw, v - floor(v / floorH) * floorH);
+      fac.x = v > vRoof - 0.4 ? 0.0 : box2(q, vec2(0.28, 0.42), vec2(cw - 0.28, floorH - 0.12));
+      fac.z = box2(q, vec2(0.0, floorH - 0.16), vec2(cw, floorH)) * 0.12;
+    } else if (v > vRoof - 0.05) {
       // parapet: plain wall with a coping line
       fac.z = box2(vec2(0.0, v), vec2(-1.0, vRoof - 0.05), vec2(1.0, vRoof + 0.08)) * 0.3;
     } else if (v < groundH) {
@@ -174,17 +184,63 @@ const GLSL_FACADE = /* glsl */ `
       fac.z += box2(vec2(0.0, fv), vec2(-1.0, 0.0), vec2(1.0, 0.12)) * 0.25 * step(style, 2.5);
     }
   }
+}
+`;
+
+// Computes, from the wall position in metres, the facade layer at this pixel:
+//   fac.x = glass (0..1), fac.y = frame/metal, fac.z = recess shadow, fac.w = lit window at night
+//   fGround: 1 on a shop front, fSign: sign band
+const GLSL_FACADE = /* glsl */ `
+  gFw = max(fwidth(vWall), vec2(0.004));
+  float fDetail = 1.0 - smoothstep(0.025, 0.08, max(gFw.x, gFw.y));
+  vec4 fac;
+  float fGround;
+  float fSign;
+  float fDoor;
+  facadeAt(vWall, fDetail, fac, fGround, fSign, fDoor);
+  float fReveal = 0.0;
+  float fRevealShade = 0.6;
+  #ifdef FACADE_DEPTH
+  {
+    // windows are set into the wall: follow the line of sight to the glass, a little behind the wall
+    // face. Where it lands outside the opening, the eye sees the opening's side wall (the reveal)
+    // instead of glass. Deep for the concrete grid towers, shallow for shop fronts.
+    float hole = clamp(fac.x, 0.0, 1.0);
+    // only near: once a pixel covers more than ~4 cm of wall the depth is not visible, so skip the
+    // second evaluation
+    if (hole > 0.01 && max(gFw.x, gFw.y) < 0.04) {
+      vec3 vt = vViewT;
+      float vz = max(vt.z, 0.06 * length(vt));
+      float depth = vStyle.x > 5.5 ? 1.2 : fGround > 0.5 ? 0.14 : vStyle.x > 2.5 && vStyle.x < 3.5 ? 0.06 : 0.26;
+      vec2 dir = vt.xy / vz;
+      vec4 fb;
+      float g2;
+      float s2;
+      float d2;
+      facadeAt(vWall + dir * depth, fDetail, fb, g2, s2, d2);
+      float seen = clamp(fb.x, 0.0, 1.0);
+      fReveal = hole * (1.0 - seen);
+      // looking up shows the head of the opening (in shade), looking down the sill (lit), else the jambs
+      fRevealShade = abs(dir.y) > abs(dir.x) ? (dir.y > 0.0 ? 0.4 : 0.85) : 0.62;
+      fac.x = hole * seen;
+      fac.w *= seen;
+    }
+  }
+  #endif
 `;
 
 const GLSL_APPLY_COLOR = /* glsl */ `
   {
     float style = vStyle.x;
     vec3 wall = diffuseColor.rgb * vTint;
-    vec3 glassCol = style > 2.5 && style < 3.5 ? vec3(0.16, 0.24, 0.3) : vec3(0.07, 0.085, 0.1);
+    // bare concrete: keep the photo's grain but not its warm colour
+    if (style > 5.5) wall = vec3(dot(wall, vec3(0.3, 0.55, 0.15))) * vec3(1.0, 0.99, 0.96) * 1.08;
+    vec3 glassCol = style > 5.5 ? wall * 0.16 : style > 2.5 && style < 3.5 ? vec3(0.16, 0.24, 0.3) : vec3(0.07, 0.085, 0.1);
     vec3 frameCol = style < 0.5 ? vec3(0.78, 0.78, 0.76) : style < 1.5 ? vec3(0.55, 0.57, 0.6) : style < 2.5 ? vec3(0.16, 0.17, 0.18) : vec3(0.32, 0.34, 0.36);
     vec3 c = wall * (1.0 - clamp(fac.z, -0.4, 0.8));
     c = mix(c, frameCol, clamp(fac.y, 0.0, 1.0));
     c = mix(c, glassCol, fac.x);
+    c = mix(c, wall * fRevealShade, fReveal);
     if (fGround > 0.5) {
       // shop sign bands in strong colours, a different one per unit
       float unit = floor(vWall.x / 5.0);
@@ -193,6 +249,8 @@ const GLSL_APPLY_COLOR = /* glsl */ `
       c = mix(c, signCol, fSign);
     }
     c = mix(c, vec3(0.32, 0.22, 0.14), fDoor);
+    // contact shade where the wall meets the pavement, and grime splashed at its foot
+    c *= mix(0.62, 1.0, smoothstep(-0.2, 1.4, vWall.y));
     diffuseColor.rgb = c;
   }
 `;
@@ -220,6 +278,14 @@ export function facadeMaterial(quality: 'low' | 'medium' | 'high', surface: 'pla
       vTint = aTint;
       vWall = uv;
       vRoof = aRoof;`,
+    ).replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+      #ifdef FACADE_DEPTH
+      vec3 fV = (modelMatrix * vec4(transformed, 1.0)).xyz - cameraPosition;
+      vec3 fN = normalize(mat3(modelMatrix) * objectNormal);
+      vViewT = vec3(dot(fV, vec3(fN.z, 0.0, -fN.x)), fV.y, -dot(fV, fN));
+      #endif`,
     );
     let frag = GLSL_FRAG_HEAD + shader.fragmentShader;
     frag = frag.replace('#include <map_fragment>', '#include <map_fragment>\n' + GLSL_FACADE + GLSL_APPLY_COLOR);
@@ -227,13 +293,13 @@ export function facadeMaterial(quality: 'low' | 'medium' | 'high', surface: 'pla
     frag = frag.replace(
       '#include <roughnessmap_fragment>',
       `#include <roughnessmap_fragment>
-      roughnessFactor = mix(mix(roughnessFactor, 0.45, clamp(fac.y, 0.0, 1.0)), 0.2, fac.x);
+      roughnessFactor = mix(mix(roughnessFactor, 0.45, clamp(fac.y, 0.0, 1.0)), vStyle.x > 5.5 ? 0.95 : 0.2, fac.x);
       roughnessFactor = mix(roughnessFactor, 0.35, uWet * (1.0 - fac.x));`,
     );
     frag = frag.replace(
       '#include <metalnessmap_fragment>',
       `#include <metalnessmap_fragment>
-      metalnessFactor = mix(metalnessFactor, 0.7, fac.x * (vStyle.x > 2.5 && vStyle.x < 3.5 ? 1.0 : 0.5) * (1.0 - fac.w * uNight));`,
+      metalnessFactor = mix(metalnessFactor, 0.7, fac.x * (vStyle.x > 5.5 ? 0.0 : vStyle.x > 2.5 && vStyle.x < 3.5 ? 1.0 : 0.5) * (1.0 - fac.w * uNight));`,
     );
     // lit rooms and shop windows at night
     frag = frag.replace(
@@ -247,6 +313,7 @@ export function facadeMaterial(quality: 'low' | 'medium' | 'high', surface: 'pla
     );
     shader.fragmentShader = frag;
   };
+  if (quality !== 'low') mat.defines = { ...(mat.defines ?? {}), FACADE_DEPTH: '' };
   mat.customProgramCacheKey = () => `facade-${quality}-${surface}`;
   return mat;
 }

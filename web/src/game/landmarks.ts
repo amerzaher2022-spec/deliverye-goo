@@ -318,6 +318,8 @@ export function buildLandmarks(district: DistrictData, graph: RoadGraph, quality
   for (const s of all.filter((x) => x.kind === 'citadel')) {
     group.add(buildCitadel(s.p, quality, boxes));
   }
+  const empire = buildingData()?.buildings.find((b) => b.lm === 'empire-main');
+  if (empire) group.add(buildEmpireMain(empire, quality, boxes));
 
   const towers = all.filter((x) => x.kind === 'tower');
   const real = buildingData();
@@ -500,33 +502,67 @@ function buildCitadel(c: LocalPoint, quality: Quality, boxes: Box[]): THREE.Grou
   g.add(rim);
 
   // half-round buttresses against the slope, and the gate tower with its arch and ramp
-  const butGeo = new THREE.CylinderGeometry(3.2, 4.6, 16, 14, 1, false, 0, Math.PI);
-  const buts = new THREE.InstancedMesh(butGeo, new THREE.MeshLambertMaterial({ color: '#b48b5c' }), 24);
+  // buttresses: brick half-cones leaning on the upper slope, below the house walls
+  const butGeo = new THREE.CylinderGeometry(2.6, 5.2, 11, 14, 1, false, 0, Math.PI);
+  const buts = new THREE.InstancedMesh(butGeo, new THREE.MeshLambertMaterial({ color: '#b98f60', side: THREE.DoubleSide }), 24);
   const m = new THREE.Matrix4();
   for (let i = 0; i < 24; i++) {
     const t = (i / 24) * Math.PI * 2 + 0.07;
     const p = at(t, 0.945);
     const ang = Math.atan2(Math.sin(t) * A, Math.cos(t) * B);
-    m.compose(new THREE.Vector3(p.x, TOP - 6, -p.y), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ang + Math.PI / 2), new THREE.Vector3(1, 1, 1));
+    m.compose(new THREE.Vector3(p.x, TOP - 7.5, -p.y), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ang + Math.PI / 2), new THREE.Vector3(1, 1, 1));
     buts.setMatrixAt(i, m);
   }
   buts.castShadow = quality !== 'low';
   g.add(buts);
   const gp = at(gateAt, 0.95);
-  const gate = new THREE.Mesh(new THREE.BoxGeometry(16, 22, 9), new THREE.MeshLambertMaterial({ color: '#c39a69' }));
-  gate.position.set(gp.x, TOP - 2.5 + 11, -gp.y + 0.5);
-  const arch = new THREE.Mesh(new THREE.CircleGeometry(3.6, 20, 0, Math.PI), new THREE.MeshBasicMaterial({ color: '#2a2018' }));
-  arch.position.set(gp.x, TOP - 2.5 + 6, -(gp.y - 4.6));
-  arch.rotation.y = Math.PI;
-  const archLow = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 6), new THREE.MeshBasicMaterial({ color: '#2a2018' }));
-  archLow.position.set(gp.x, TOP - 2.5 + 3, -(gp.y - 4.6));
-  archLow.rotation.y = Math.PI;
+  // south gate: a tall brick gatehouse with a deep pointed arch between two round towers
+  const brickTex = groundTexture('#c39a69', 2);
+  brickTex.wrapS = brickTex.wrapT = THREE.RepeatWrapping;
+  brickTex.repeat.set(3, 3);
+  const brickMat = new THREE.MeshLambertMaterial({ map: brickTex });
+  const base = TOP - 2.5;
+  const gate = new THREE.Mesh(new THREE.BoxGeometry(15, 21, 10.04), brickMat);
+  gate.position.set(gp.x, base + 10.5, -gp.y + 0.5);
+  // pointed arch opening, 7 m wide and 12 m high, set 1.5 m into the face
+  const archShape = new THREE.Shape();
+  archShape.moveTo(-3.5, 0);
+  archShape.lineTo(-3.5, 7.5);
+  archShape.quadraticCurveTo(-3.3, 10.6, 0, 12);
+  archShape.quadraticCurveTo(3.3, 10.6, 3.5, 7.5);
+  archShape.lineTo(3.5, 0);
+  archShape.lineTo(-3.5, 0);
+  const archGeo = new THREE.ShapeGeometry(archShape, 10);
+  const arch = new THREE.Mesh(archGeo, new THREE.MeshLambertMaterial({ color: '#2b211a' }));
+  // the gate's south face is at +5.5 m (scene z grows towards the south)
+  arch.position.set(gp.x, base, -gp.y + 0.5 + 5.1 + 0.04);
+  // the arch's frame stands proud of the wall
+  const frameShape = new THREE.Shape();
+  frameShape.moveTo(-4.6, 0);
+  frameShape.lineTo(-4.6, 8);
+  frameShape.quadraticCurveTo(-4.3, 11.9, 0, 13.6);
+  frameShape.quadraticCurveTo(4.3, 11.9, 4.6, 8);
+  frameShape.lineTo(4.6, 0);
+  frameShape.lineTo(-4.6, 0);
+  const frame = new THREE.Mesh(new THREE.ShapeGeometry(frameShape, 10), new THREE.MeshLambertMaterial({ color: '#d4ae7c' }));
+  frame.position.set(gp.x, base, -gp.y + 0.5 + 5.02 + 0.06);
+  const towerGeo = new THREE.CylinderGeometry(4.2, 4.8, 23, 16);
+  for (const sx of [-1, 1]) {
+    const t = new THREE.Mesh(towerGeo, brickMat);
+    t.position.set(gp.x + sx * 10, base + 11.5, -(gp.y - 2.5));
+    t.castShadow = quality !== 'low';
+    g.add(t);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 0.6, 16), new THREE.MeshLambertMaterial({ color: '#d4ae7c' }));
+    cap.position.set(gp.x + sx * 10, base + 23.2, -(gp.y - 2.5));
+    g.add(cap);
+  }
+  gate.castShadow = quality !== 'low';
   // ramp from the street up to the gate
   const rampLen = 70;
-  const ramp = new THREE.Mesh(new THREE.BoxGeometry(12, 1, Math.hypot(rampLen, TOP)), new THREE.MeshLambertMaterial({ color: '#b7ab97' }));
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(9, 1, Math.hypot(rampLen, TOP)), new THREE.MeshLambertMaterial({ color: '#c4ae88' }));
   ramp.position.set(gp.x, TOP / 2 - 0.5, -(gp.y - 4.5 - rampLen / 2));
   ramp.rotation.x = -Math.atan2(TOP, rampLen);
-  g.add(gate, arch, archLow, ramp);
+  g.add(gate, frame, arch, ramp);
 
   // collision: a ring of walls at the foot of the mound
   for (let i = 0; i < 32; i++) {
@@ -536,6 +572,134 @@ function buildCitadel(c: LocalPoint, quality: Quality, boxes: Box[]): THREE.Grou
     const p1 = at(t1, 1.1);
     const len = Math.hypot(p1.x - p0.x, p1.y - p0.y);
     boxes.push({ cx: (p0.x + p1.x) / 2, cy: (p0.y + p1.y) / 2, ux: (p1.x - p0.x) / len, uy: (p1.y - p0.y) / len, hw: len / 2 + 1, hd: 3 });
+  }
+  return g;
+}
+
+/**
+ * Empire World's main tower (Empire Business Tower 1, about 130 m), after a street photograph: a glass
+ * tower whose faces bow gently outwards towards mid-height, on a darker podium, with a crown and the
+ * EMPIRE WORLD sign at the top. Footprint and height from OpenStreetMap; the bowing, crown and podium
+ * proportions are estimated from the photo.
+ */
+function buildEmpireMain(rec: BuildingRecord, quality: Quality, boxes: Box[]): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'empire-main';
+  const n = rec.p.length / 2;
+  const pts: LocalPoint[] = [];
+  for (let i = 0; i < n; i++) pts.push({ x: rec.p[i * 2]!, y: rec.p[i * 2 + 1]! });
+  const c = pts.reduce((a, p) => ({ x: a.x + p.x / n, y: a.y + p.y / n }), { x: 0, y: 0 });
+  const H = rec.h;
+  const podium = 9;
+  // plan scale with height: straight podium, then a gentle barrel bulge, pulled in at the crown
+  const scale = (y: number) => (y <= podium ? 1.04 : 1 + 0.075 * Math.sin((Math.PI * (y - podium)) / (H - podium)) - (y > H - 6 ? 0.03 : 0));
+  const levels = [0, podium - 0.01, podium];
+  for (let k = 1; k <= 14; k++) levels.push(podium + ((H - podium) * k) / 14);
+  levels.push(H + 6);
+  const ring = (y: number) => {
+    const k = scale(Math.min(y, H));
+    return pts.map((p) => ({ x: c.x + (p.x - c.x) * k, y: c.y + (p.y - c.y) * k }));
+  };
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const uv: number[] = [];
+  const style: number[] = [];
+  const tint: number[] = [];
+  const roof: number[] = [];
+  const glass = new THREE.Color('#f2f4f6');
+  const stone = new THREE.Color('#5b5d60');
+  for (let L = 0; L < levels.length - 1; L++) {
+    const y0 = levels[L]!;
+    const y1 = levels[L + 1]!;
+    if (y1 - y0 < 0.05) continue;
+    const r0 = ring(y0);
+    const r1 = ring(y1);
+    const isPodium = y1 <= podium;
+    let u0 = 0;
+    let u1 = 0;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const a0 = r0[i]!;
+      const b0 = r0[j]!;
+      const a1 = r1[i]!;
+      const b1 = r1[j]!;
+      const l0 = Math.hypot(b0.x - a0.x, b0.y - a0.y);
+      const l1 = Math.hypot(b1.x - a1.x, b1.y - a1.y);
+      const nx = (b0.y - a0.y) / l0;
+      const ny = -(b0.x - a0.x) / l0;
+      const v = [
+        [a0.x, y0, a0.y, u0, y0],
+        [b0.x, y0, b0.y, u0 + l0, y0],
+        [b1.x, y1, b1.y, u1 + l1, y1],
+        [a1.x, y1, a1.y, u1, y1],
+      ];
+      for (const k of [0, 1, 2, 0, 2, 3]) {
+        const q = v[k]!;
+        pos.push(q[0]!, q[1]!, -q[2]!);
+        nor.push(nx, 0, -ny);
+        uv.push(q[3]!, q[4]!);
+        // podium: dark stone with shop glass; tower: curtain wall; crown: the curtain wall above the roof
+        style.push(isPodium ? 1 : 3, 0.37, isPodium ? 4.5 : 4.4, isPodium ? 1 : 0);
+        const t = isPodium ? stone : glass;
+        tint.push(t.r, t.g, t.b);
+        roof.push(y1 > H ? H + 6 : isPodium ? podium : H + 6);
+      }
+      u0 += l0;
+      u1 += l1;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('aStyle', new THREE.Float32BufferAttribute(style, 4));
+  geo.setAttribute('aTint', new THREE.Float32BufferAttribute(tint, 3));
+  geo.setAttribute('aRoof', new THREE.Float32BufferAttribute(roof, 1));
+  const tower = new THREE.Mesh(geo, cityFacade(quality === 'low' ? 'low' : quality === 'medium' ? 'medium' : 'high', 'plaster_smooth'));
+  tower.castShadow = quality !== 'low';
+  tower.receiveShadow = true;
+  tower.renderOrder = -2;
+  g.add(tower);
+  // roof inside the crown
+  const top = ring(H).map((p) => new THREE.Vector2(p.x, p.y));
+  const tris = THREE.ShapeUtils.triangulateShape(top, []);
+  const rp: number[] = [];
+  for (const t of tris) for (const k of t) rp.push(top[k]!.x, H, -top[k]!.y);
+  const rg = new THREE.BufferGeometry();
+  rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
+  rg.computeVertexNormals();
+  g.add(new THREE.Mesh(rg, new THREE.MeshLambertMaterial({ color: '#8d9196', side: THREE.DoubleSide })));
+  // EMPIRE WORLD at the crown, on the two widest faces
+  const tex = labelTexture(
+    [
+      { text: 'EMPIRE WORLD', size: 120, font: '600 $px "Times New Roman", Georgia, serif' },
+      { text: 'إمباير وورلد', size: 64, font: '600 $px "IBM Plex Sans Arabic", system-ui, sans-serif' },
+    ],
+    'rgba(0,0,0,0)',
+    '#e9dfc8',
+  );
+  const edges = pts.map((p, i) => ({ i, len: Math.hypot(pts[(i + 1) % n]!.x - p.x, pts[(i + 1) % n]!.y - p.y) })).sort((a, b) => b.len - a.len);
+  const crown = ring(H + 3);
+  for (const e of edges.slice(0, 2)) {
+    const a = crown[e.i]!;
+    const b = crown[(e.i + 1) % n]!;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const nx = (b.y - a.y) / len;
+    const ny = -(b.x - a.x) / len;
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(len * 0.8, 22), Math.min(len * 0.8, 22) / 4), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4, metalness: 0.6, emissive: '#ffe9c4', emissiveMap: tex, emissiveIntensity: 0.35 }));
+    const mx = (a.x + b.x) / 2 + nx * 0.25;
+    const my = (a.y + b.y) / 2 + ny * 0.25;
+    board.position.set(mx, H + 2.6, -my);
+    board.lookAt(mx + nx * 10, H + 2.6, -(my + ny * 10));
+    g.add(board);
+  }
+  for (let i = 0; i < n; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % n]!;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const nx = (b.y - a.y) / len;
+    const ny = -(b.x - a.x) / len;
+    boxes.push({ cx: (a.x + b.x) / 2 + nx * 0.6, cy: (a.y + b.y) / 2 + ny * 0.6, ux: (b.x - a.x) / len, uy: (b.y - a.y) / len, hw: len / 2 + 0.6, hd: 0.6 });
   }
   return g;
 }

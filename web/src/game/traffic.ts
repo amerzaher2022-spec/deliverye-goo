@@ -318,7 +318,7 @@ export class Traffic {
     poles.castShadow = heads.castShadow = this.quality === 'high';
     this.group.add(poles, heads);
 
-    const lampGeo = new THREE.CircleGeometry(0.105, 16);
+    const lampGeo = new THREE.CircleGeometry(0.105, 8);
     const lamps = new THREE.InstancedMesh(lampGeo, new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), lampAt.length);
     lampAt.forEach((l, i) => {
       // on the front face of the head, facing traffic

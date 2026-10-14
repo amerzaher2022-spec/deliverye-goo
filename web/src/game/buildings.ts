@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Box } from './collision';
-import { ChunkedInstances } from './chunked';
+import { ChunkedInstances, limitDistance } from './chunked';
 import { facadeMaterial } from './facade';
 import { photoTexture } from './pbr';
 import type { Quality } from './world';
@@ -29,6 +29,8 @@ export interface BuildingRecord {
   c: number;
   /** name, when OpenStreetMap has one */
   n?: string;
+  /** a landmark drawn by its own model (landmarks.ts) instead of the generic extrusion */
+  lm?: string;
 }
 
 export interface BuildingFile {
@@ -86,6 +88,19 @@ export function buildCity(quality: Quality, reserved: Box[]) {
   const acs: THREE.Matrix4[] = [];
   const dishes: THREE.Matrix4[] = [];
   const awnings: { m: THREE.Matrix4; c: THREE.Color }[] = [];
+  // concrete that stands out of the wall (shop canopies, roof copings), merged per square
+  const ledges = new Map<string, THREE.BufferGeometry[]>();
+  const acUnits: THREE.Matrix4[] = [];
+  const ledge = (key: string, ax: number, ay: number, bx: number, by: number, y: number, depth: number, height: number, extend: number) => {
+    const len = Math.hypot(bx - ax, by - ay);
+    const ux = (bx - ax) / len;
+    const uy = (by - ay) / len;
+    const g = new THREE.BoxGeometry(len + extend * 2, height, depth);
+    // local x along the wall, local +z out of it (the wall's outward normal)
+    g.rotateY(Math.atan2(uy, ux));
+    g.translate((ax + bx) / 2 + uy * (depth / 2 - 0.05), y, -((ay + by) / 2 - ux * (depth / 2 - 0.05)));
+    (ledges.get(key) ?? ledges.set(key, []).get(key)!).push(g);
+  };
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
@@ -108,14 +123,15 @@ export function buildCity(quality: Quality, reserved: Box[]) {
     }
     cx /= n;
     cy /= n;
-    // merchant plots and landmarks stay clear
-    if (blocked(cx, cy)) return;
+    // merchant plots and landmarks stay clear; landmark buildings have their own models
+    if (blocked(cx, cy) || b.lm) return;
     const key = `${Math.floor(cx / CELL)},${Math.floor(cy / CELL)}`;
     let wb = wallBatches.get(key);
     if (!wb) wallBatches.set(key, (wb = { stone: newBatch(), plaster: newBatch() }));
     const batch = b.s === 2 || b.s === 5 ? wb.plaster : wb.stone;
     tint.setHex(b.c);
     const shops = new Set(b.shop ?? []);
+    const street = shops.size > 0;
     const parapet = b.s === 3 ? 1.2 : 0.9;
     const top = b.h + parapet;
     let u = 0;
@@ -145,6 +161,26 @@ export function buildCity(quality: Quality, reserved: Box[]) {
         batch.style.push(b.s, (bi % 997) / 997, b.fh, shop);
         batch.tint.push(tint.r, tint.g, tint.b);
         batch.roof.push(b.h);
+      }
+      // a street building: a coping along the top of every wall and, over the shops, a concrete canopy;
+      // split air conditioners hang on the street side (as on most Erbil blocks)
+      if (quality !== 'low' && street && len > 2) {
+        // modern blocks have a concrete coping; old houses and plain homes do not
+        if (b.s === 0 || b.s === 1 || b.s === 5) ledge(key, ax, ay, bx, by, top + 0.1, 0.34, 0.2, 0.12);
+        if (shop) ledge(key, ax, ay, bx, by, 4.32, 1.15, 0.22, 0);
+        if (shop && b.s !== 3 && b.s !== 6) {
+          const floors = Math.floor((b.h - 4.4) / b.fh);
+          for (let f = 0; f < floors; f++) {
+            for (let s2 = 1.2; s2 < len - 1; s2 += 3.6) {
+              if (hash(bi * 97 + f * 13 + s2 * 3) > 0.32) continue;
+              const px = ax + ((bx - ax) / len) * s2 + nx * 0.02;
+              const py = ay + ((by - ay) / len) * s2 + ny * 0.02;
+              q.setFromAxisAngle(up, Math.atan2((by - ay) / len, (bx - ax) / len));
+              m.compose(new THREE.Vector3(px, 4.4 + f * b.fh + 0.45, -py), q, new THREE.Vector3(1, 1, 1));
+              acUnits.push(m.clone());
+            }
+          }
+        }
       }
       u += len;
       walls.push({ cx: (ax + bx) / 2 + nx * 0.15, cy: (ay + by) / 2 + ny * 0.15, ux: (bx - ax) / len, uy: (by - ay) / len, hw: len / 2, hd: 0.3, id: `w${bi}` });
@@ -238,29 +274,36 @@ export function buildCity(quality: Quality, reserved: Box[]) {
 
   // roof clutter and awnings, instanced per square
   const plane = (mm: THREE.Matrix4) => ({ x: mm.elements[12]!, y: -mm.elements[14]! });
-  const tankGeo = new THREE.CylinderGeometry(0.62, 0.62, 1.35, 12);
-  tankGeo.translate(0, 0.68, 0);
+  // eight sides and no bottom are plenty for a tank on a roof seen from the street
+  const tankGeo = new THREE.CylinderGeometry(0.62, 0.62, 1.35, 8, 1, true);
+  const tankTop = new THREE.CircleGeometry(0.62, 8);
+  tankTop.rotateX(-Math.PI / 2);
+  tankTop.translate(0, 0.675, 0);
+  const tankGeoAll = mergeGeometries([tankGeo.toNonIndexed(), tankTop.toNonIndexed()]);
+  tankGeoAll.translate(0, 0.68, 0);
   const acGeo = new THREE.BoxGeometry(1, 0.8, 0.45);
   acGeo.translate(0, 0.4, 0);
-  const dishGeo = new THREE.SphereGeometry(0.45, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2.6);
+  const dishGeo = new THREE.SphereGeometry(0.45, 7, 3, 0, Math.PI * 2, 0, Math.PI / 2.6);
   dishGeo.rotateX(-1.1);
   dishGeo.translate(0, 0.9, 0);
-  const add = (geo: THREE.BufferGeometry, color: string, list: THREE.Matrix4[], colors?: (i: number) => THREE.Color) => {
+  // roof clutter is only drawn near the camera: from the street it cannot be seen far away
+  const clutterFar = quality === 'high' ? 260 : 170;
+  const add = (geo: THREE.BufferGeometry, color: string, list: THREE.Matrix4[], colors?: (i: number) => THREE.Color, far = clutterFar) => {
     if (!list.length) return;
-    const ci = new ChunkedInstances(geo, new THREE.MeshLambertMaterial({ color }), list.map(plane), group, { castShadow: quality === 'high' });
+    const ci = new ChunkedInstances(geo, new THREE.MeshLambertMaterial({ color }), list.map(plane), group, { castShadow: quality === 'high', maxDistance: far, cell: 160 });
     list.forEach((mm, i) => {
       ci.setMatrixAt(i, mm);
       if (colors) ci.setColorAt(i, colors(i));
     });
     ci.finish();
   };
-  add(tankGeo, '#ffffff', tanks, (i) => new THREE.Color(hash(i * 5) < 0.55 ? '#1f2022' : '#e8e6e0'));
+  add(tankGeoAll, '#ffffff', tanks, (i) => new THREE.Color(hash(i * 5) < 0.55 ? '#1f2022' : '#e8e6e0'));
   add(acGeo, '#cfd0cc', acs);
   add(dishGeo, '#e9e9e6', dishes);
   if (awnings.length) {
     const awningGeo = new THREE.BoxGeometry(4.4, 0.08, 1.4);
     awningGeo.rotateX(0.32);
-    add(awningGeo, '#ffffff', awnings.map((a) => a.m), (i) => awnings[i]!.c);
+    add(awningGeo, '#ffffff', awnings.map((a) => a.m), (i) => awnings[i]!.c, 240);
   }
   // parks and gardens: grass on the ground; real trees (OpenStreetMap) as broadleaf trees
   if (data.parks.length) {
@@ -301,7 +344,7 @@ export function buildCity(quality: Quality, reserved: Box[]) {
       q.setFromAxisAngle(up, hash(i + 1) * 6.28);
       at.push(new THREE.Matrix4().compose(new THREE.Vector3(data.trees[i]!, 0, -data.trees[i + 1]!), q, new THREE.Vector3(sc, sc, sc)));
     }
-    const shade = { castShadow: quality === 'high' };
+    const shade = { castShadow: quality === 'high', maxDistance: 380 };
     const tr = new ChunkedInstances(trunk, new THREE.MeshLambertMaterial({ color: '#6b5844' }), at.map(plane), group, shade);
     const cr = new ChunkedInstances(crown, new THREE.MeshLambertMaterial({ color: '#56703a', flatShading: true }), at.map(plane), group, shade);
     at.forEach((mm, i) => {
@@ -311,6 +354,33 @@ export function buildCity(quality: Quality, reserved: Box[]) {
     });
     tr.finish();
     cr.finish();
+  }
+  if (ledges.size) {
+    const ledgeMat = new THREE.MeshLambertMaterial({ color: '#b9b1a3' });
+    for (const list of ledges.values()) {
+      const lm = new THREE.Mesh(mergeGeometries(list), ledgeMat);
+      lm.castShadow = quality === 'high';
+      lm.receiveShadow = true;
+      group.add(lm);
+      limitDistance(lm, 320);
+    }
+  }
+  if (acUnits.length) {
+    const ac = new THREE.BoxGeometry(0.82, 0.56, 0.26);
+    ac.translate(0, 0, 0.13);
+    // fan grille: a darker disc on the front
+    const fan = new THREE.CircleGeometry(0.2, 10);
+    fan.translate(0.12, 0, 0.262);
+    const shade = (g: THREE.BufferGeometry, v: number) => {
+      const c: number[] = [];
+      for (let i = 0; i < g.attributes.position!.count; i++) c.push(v, v, v);
+      g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+      return g.toNonIndexed();
+    };
+    const acGeo = mergeGeometries([shade(ac, 1), shade(fan, 0.35)]);
+    const ci = new ChunkedInstances(acGeo, new THREE.MeshLambertMaterial({ color: '#ecebe6', vertexColors: true }), acUnits.map(plane), group, { maxDistance: 170, cell: 160 });
+    acUnits.forEach((mm, i) => ci.setMatrixAt(i, mm));
+    ci.finish();
   }
   return { group, walls, shopWalls };
 }

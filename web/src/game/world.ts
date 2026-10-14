@@ -11,7 +11,7 @@ import { distanceToRoadEdge, type RoadGraph } from '../../../shared/roads';
 import type { DistrictData } from '../../../shared/types';
 import { BoxGrid, boxesOverlap, pointInPolygon, type Box } from './collision';
 import { cloneNode, hasModel, parkedMaterial } from './assets';
-import { ChunkedInstances } from './chunked';
+import { ChunkedInstances, limitDistance } from './chunked';
 import { photoTexture, type PhotoSet } from './pbr';
 import { parkedCarGeometries } from './models';
 import { barrierTexture, facadeTexture, groundTexture, roadTexture, sidewalkTexture, type FacadeStyle } from './textures';
@@ -24,6 +24,33 @@ export type Quality = 'low' | 'medium' | 'high';
 
 /** local (x east, y north) -> three.js (x, y up, z south) */
 export const v3 = (p: LocalPoint, h = 0) => new THREE.Vector3(p.x, h, -p.y);
+
+/** distance within which parked cars are drawn with the detailed model */
+const PARKED_NEAR = 150;
+const farCarGeos = new Map<string, THREE.BufferGeometry>();
+/** A low block (body plus a darker cabin) the size of a parked car, for far away. */
+function farCarGeometry(kind: ParkedKind) {
+  let g = farCarGeos.get(kind);
+  if (g) return g;
+  const len = PARKED_LEN[kind] * 2;
+  const body = new THREE.BoxGeometry(1.78, 0.75, len);
+  body.translate(0, 0.62, 0);
+  const cabin = new THREE.BoxGeometry(1.6, 0.6, len * 0.5);
+  cabin.translate(0, 1.27, -len * 0.06);
+  const shade = (geo: THREE.BufferGeometry, v: number) => {
+    const c: number[] = [];
+    for (let i = 0; i < geo.attributes.position!.count; i++) c.push(v, v, v);
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+    return geo;
+  };
+  g = mergeGeometries([shade(body, 1), shade(cabin, 0.35)]);
+  farCarGeos.set(kind, g);
+  return g;
+}
+let farCarMat: THREE.Material | null = null;
+function farCarMaterial() {
+  return (farCarMat ??= new THREE.MeshLambertMaterial({ vertexColors: true }));
+}
 
 const ROAD_Y: Record<string, number> = { arterial: 0.1, primary: 0.09, secondary: 0.08, local: 0.07 };
 
@@ -293,6 +320,10 @@ export class World {
     // real footprints when the building file loaded, generated blocks along the streets otherwise
     const city = buildingData() ? buildCity(opts.quality, opts.reserved) : null;
     if (city && city.walls.length) {
+      // buildings hide most of what is behind them: draw them first
+      city.group.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh && !(o as THREE.InstancedMesh).isInstancedMesh) o.renderOrder = -2;
+      });
       this.group.add(city.group);
       for (const w of city.walls) this.grid.add(w);
       this.signFaces = city.shopWalls.map((s) => ({ x: s.x, y: s.y, nx: s.nx, ny: s.ny, w: s.len, z: 3.35, hMax: 0.9 }));
@@ -338,6 +369,9 @@ export class World {
       ground.position.set((minX + maxX) / 2, 0, -(minY + maxY) / 2);
     }
     ground.receiveShadow = true;
+    // the ground is mostly hidden under roads, pavements and buildings: draw it after them so the depth
+    // test skips the hidden pixels
+    ground.renderOrder = 6;
     this.group.add(ground);
 
     // zone tints would cover the tunnel cuttings, so they are left out where there are any
@@ -974,22 +1008,32 @@ export class World {
     pole.translate(0, 4.6, 0);
     const arm = new THREE.BoxGeometry(1.8, 0.1, 0.1);
     arm.translate(0, 8.6, 0);
-    const pm = new ChunkedInstances(mergeGeometries([pole, arm]), new THREE.MeshLambertMaterial({ color: '#a29d93' }), poles.map(planeOf), this.group, { castShadow: this.opts.quality === 'high' });
+    const pm = new ChunkedInstances(mergeGeometries([pole, arm]), new THREE.MeshLambertMaterial({ color: '#a29d93' }), poles.map(planeOf), this.group, { castShadow: this.opts.quality === 'high', maxDistance: 320 });
     poles.forEach((m, i) => pm.setMatrixAt(i, m));
     pm.finish();
     if (boxes.length) {
       const tx = new THREE.BoxGeometry(0.7, 0.9, 0.55);
       tx.translate(0, 0, 0.35);
-      const bm = new ChunkedInstances(tx, new THREE.MeshLambertMaterial({ color: '#7d8279' }), boxes.map(planeOf), this.group);
+      const bm = new ChunkedInstances(tx, new THREE.MeshLambertMaterial({ color: '#7d8279' }), boxes.map(planeOf), this.group, { maxDistance: 220 });
       boxes.forEach((m, i) => bm.setMatrixAt(i, m));
       bm.finish();
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(cable, 3));
-    g.computeBoundingSphere();
-    const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: '#1d1f22' }));
-    lines.frustumCulled = false;
-    this.group.add(lines);
+    // cables in 200 m squares, each drawn only near the camera
+    const cableMat = new THREE.LineBasicMaterial({ color: '#1d1f22' });
+    const squares = new Map<string, number[]>();
+    for (let i = 0; i < cable.length; i += 6) {
+      const k = `${Math.floor(cable[i]! / 200)},${Math.floor(cable[i + 2]! / 200)}`;
+      const list = squares.get(k) ?? squares.set(k, []).get(k)!;
+      for (let j = 0; j < 6; j++) list.push(cable[i + j]!);
+    }
+    for (const list of squares.values()) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(list, 3));
+      g.computeBoundingSphere();
+      const lines = new THREE.LineSegments(g, cableMat);
+      this.group.add(lines);
+      limitDistance(lines, 260);
+    }
   }
 
   /** Roadside billboards on the main roads (invented advertisers, no real brands). */
@@ -1193,7 +1237,19 @@ export class World {
         im.receiveShadow = true;
         cellMeshes.push(im);
         this.group.add(im);
+        // the detailed model only near the camera
+        limitDistance(im, PARKED_NEAR);
       }
+      // far away: a plain painted block of the same size stands in
+      const far = new THREE.InstancedMesh(farCarGeometry(kind), farCarMaterial(), idx.length);
+      idx.forEach((slot, k) => {
+        far.setMatrixAt(k, mats[slot]!);
+        far.setColorAt(k, cols[slot]!);
+      });
+      far.computeBoundingSphere();
+      this.group.add(far);
+      limitDistance(far, 420, PARKED_NEAR);
+      cellMeshes.push(far);
       idx.forEach((slot, k) => (slots[slot] = { meshes: cellMeshes, i: k }));
       meshes.push(...cellMeshes);
     }

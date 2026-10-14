@@ -96,7 +96,7 @@ function simplify(p) {
   return out;
 }
 
-const STYLE = { stone: 0, commercial: 1, house: 2, tower: 3, old: 4, concrete: 5 };
+const STYLE = { stone: 0, commercial: 1, house: 2, tower: 3, old: 4, concrete: 5, grid: 6 };
 const TINTS = {
   stone: [0xefe6d4, 0xe8dcc4, 0xf2ece0, 0xe3d6bd, 0xd9cdb6],
   commercial: [0xd8d6d0, 0xc9ccd0, 0xe6e0d4, 0xbfc4c9, 0xd4c7b0],
@@ -104,6 +104,7 @@ const TINTS = {
   tower: [0xffffff, 0xf2f4f6, 0xe6ecef],
   old: [0xcfae7d, 0xc49d6b, 0xd6b98c, 0xb88f5e],
   concrete: [0xcfccc5, 0xbdb9b1, 0xd9d4ca],
+  grid: [0xc8c4bc, 0xbdb9b2],
 };
 const PUBLIC = /^(school|university|college|hospital|public|government|civic|mosque|church|train_station|stadium|kindergarten)$/;
 
@@ -167,7 +168,11 @@ for (const e of raw) {
   let style;
   const name = `${t.name ?? ''} ${t['name:en'] ?? ''}`;
   // known complexes: Empire World's residential wings are stone-clad blocks, its business towers glass
+  // Empire World (reference photo): the four curved business towers around the main one are deep
+  // concrete grids; the main tower (Empire Business Tower 1) is drawn as its own model (landmarks.ts)
+  const empireMain = /Empire Business Tower 1\b/.test(name);
   if (/Empire Residential|Wings/i.test(name)) style = 'stone';
+  else if (/Empire Business Tower [2-5]\b/.test(name)) style = 'grid';
   else if (/ئیمپایەر|Empire.*(Business|Tower)/i.test(name)) style = 'tower';
   else if (PUBLIC.test(kind) || PUBLIC.test(t.amenity ?? '')) style = 'concrete';
   else if (dCitadel < 520 && !(levelsTag >= 5)) style = 'old';
@@ -192,11 +197,12 @@ for (const e of raw) {
         concrete: 2 + Math.floor(r * 2),
       }[style];
   }
-  const fh = style === 'tower' ? 3.6 : style === 'house' || style === 'old' ? 3.1 : 3.3;
+  let fh = style === 'tower' ? 3.6 : style === 'house' || style === 'old' ? 3.1 : 3.3;
+  if (style === 'grid' && heightTag > 0 && levelsTag > 0) fh = +Math.min(4.4, heightTag / levelsTag).toFixed(2);
 
   // shop fronts on walls that face a main street close by (not on houses set back in quiet streets)
   const shop = [];
-  if (style !== 'tower' || levels < 30) {
+  if ((style !== 'tower' || levels < 30) && style !== 'grid') {
     for (let i = 0; i < p.length; i++) {
       const A = p[i];
       const B = p[(i + 1) % p.length];
@@ -231,6 +237,7 @@ for (const e of raw) {
   };
   if (shop.length) rec.shop = shop;
   if (t.name) rec.n = t['name:ar'] || t.name;
+  if (empireMain) rec.lm = 'empire-main';
   buildings.push(rec);
 }
 

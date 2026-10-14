@@ -316,9 +316,11 @@ export class Atmosphere {
     if (pano) this.panoSunAz = Math.atan2(pano.sun.z, pano.sun.x);
     this.sky = new THREE.Mesh(
       new THREE.SphereGeometry(1, 48, 24),
-      new THREE.ShaderMaterial({ uniforms, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false }),
+      new THREE.ShaderMaterial({ uniforms, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, depthTest: true, fog: false }),
     );
-    this.sky.renderOrder = -10;
+    // drawn after every other opaque object, at the far plane: only the pixels nothing else covered are
+    // shaded (the clouds are the most expensive shader per pixel)
+    this.sky.renderOrder = 1000;
     this.sky.frustumCulled = false;
     this.sky.name = 'sky';
     this.group.add(this.sky);

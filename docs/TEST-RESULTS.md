@@ -17,7 +17,24 @@ Last run on 2026-10-14 (after the real buildings, day/night and weather, new veh
 
 Screenshots taken while driving at medium quality (software GPU) were reviewed for: Kurdistan (60 m) Street near the Iskan tunnel by day, at dusk, at night and in heavy rain, from the chase and the rider's views; the Empire World area; the old town south of the citadel. Problems found and fixed in this pass: rain puddles looked like white patches (now dark water with a sky sheen at grazing angles); lit windows shimmered into speckles at night (an interpolated per-building seed was amplified by the hash — now snapped exactly; window edges are also anti-aliased); mirrors showed mostly sky (re-aimed along the road); the headlight beam was too short.
 
-Performance on the software GPU (no real GPU available): medium quality with the real city, shadows, mirrors and post-processing takes about 4–6 s per frame there, against about 1.9 s before the real buildings. This says nothing reliable about real phones; it does show the city costs roughly 2–3× more to draw, so the automatic quality setting and the mirror and traffic options matter on weak devices.
+## Performance: measured before and after (2026-10-14, quality pass)
+
+Measured with `tools/perf/frame-time.mjs` at the same place (the game's start on Kurdistan Street before the Iskan tunnel), the same camera, 1280×720, medium quality, on the software GPU of the build environment (SwiftShader: no real GPU was available). Each part of a frame is timed after waiting for the GPU with a 1-pixel `readPixels`; median of several frames. An earlier figure of "4–6 s per frame" came from timing animation frames; the method here is exact, and gives the same order for the old version.
+
+| View | Before (ae604f7) | After | Triangles drawn | Mirrors (both) |
+|---|---|---|---|---|
+| Rider, 13:00, clear | 4.83 s | 2.44–2.47 s | 2.63 M → 0.56 M | 0.84 → 0.17 s |
+| Rider, 22:00, night | 5.04 s | 2.48 s | 2.63 M → 0.56 M | 0.85 → 0.18 s |
+| Rider, 13:00, heavy rain | 5.24 s | 2.52 s | 2.63 M → 0.56 M | 0.89 → 0.18 s |
+| Chase, 13:00, clear | 4.41 s | 2.48 s | 2.43 M → 0.56 M | 0.80 → 0.17 s |
+
+What made the difference (found by removing one thing at a time and by counting triangles per object): the roof water tanks were 1.73 of the 2.63 million triangles in view, drawn out to the horizon though they cannot be seen from the street; far parked cars were drawn with the full model. Small detail now has a drawing distance (roof clutter ~170 m, parked cars full detail 150 m then simple blocks to 420 m, markings 240 m, trees 380 m, power lines 260–320 m), tanks use 8 sides, power cables are split into squares. The sky and the ground are drawn after the objects that cover them. Mirrors and traffic stay on: measured, they cost about 0.17 s and 0.1–0.15 s of the 2.4 s.
+
+Where the remaining time goes on this software GPU (removing each in turn): it is mostly per-pixel work (a quarter of the pixels takes 0.96 s instead of 2.37 s); post-processing and 4× multisampling about 0.45 s, the city about 0.7 s (of which facade shading with window depth about 0.35 s), shadows about 0.25 s. On a real GPU these ratios differ; the triangle reduction applies to every device.
+
+Loading: the larger files are now sent Brotli-compressed (`scripts/build-server.mjs` writes `.br`/`.gz` copies, the server serves them): the building data drops from 2.4 MB to 0.45 MB, 5.8 MB less in total.
+
+The visual additions of this pass (window depth, Empire World's grid towers and main tower, the citadel gate, shop canopies, copings, wall air conditioners) are included in the "After" column.
 
 ## Covered by the API tests (`tests/api.test.ts`, `tests/geo.test.ts`)
 
