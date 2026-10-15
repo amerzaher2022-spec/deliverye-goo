@@ -69,11 +69,9 @@ function Login({ onDone }: { onDone: (me: Me) => void }) {
         }}
       >
         <div className="a-row" style={{ marginBottom: 18 }}>
-          <span className="a-brand-mark">
-            <Icon name="package" size={18} />
-          </span>
+          <img className="a-brand-logo" src="/icons/icon.svg" alt="" width={34} height={34} />
           <div>
-            <div style={{ fontWeight: 600 }}>{L('عالم توصيل أربيل', 'Erbil Delivery World')}</div>
+            <div style={{ fontWeight: 600 }}>{L('سوا اربيل', 'Sawa Erbil')}</div>
             <div className="small" style={{ color: 'var(--muted)' }}>
               {L('لوحة إدارة الأعمال', 'Business console')}
             </div>
@@ -159,11 +157,9 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
       <div className={`a-shell ${open ? 'open' : ''}`}>
         <aside className="a-side" aria-label={L('التنقل', 'Navigation')}>
           <div className="a-brand">
-            <span className="a-brand-mark">
-              <Icon name="package" size={18} />
-            </span>
+            <img className="a-brand-logo" src="/icons/icon.svg" alt="" width={34} height={34} />
             <div>
-              <b>{L('عالم توصيل أربيل', 'Erbil Delivery World')}</b>
+              <b>{L('سوا اربيل', 'Sawa Erbil')}</b>
               <small>{L('لوحة إدارة الأعمال', 'Business console')}</small>
             </div>
           </div>

@@ -25,6 +25,9 @@ export type Quality = 'low' | 'medium' | 'high';
 /** local (x east, y north) -> three.js (x, y up, z south) */
 export const v3 = (p: LocalPoint, h = 0) => new THREE.Vector3(p.x, h, -p.y);
 
+/** height of the asphalt surface above the ground plane: wheels stand on it */
+export const ROAD_TOP = 0.11;
+
 /** distance within which parked cars are drawn with the detailed model */
 const PARKED_NEAR = 150;
 const farCarGeos = new Map<string, THREE.BufferGeometry>();
@@ -903,7 +906,8 @@ export class World {
           const head = new THREE.Vector3(2.25, 8.82, 0).applyMatrix4(m);
           this.lampLights.push({ head, ground: new THREE.Vector3(head.x, 0, head.z) });
         }
-        if (road.kind === 'arterial') {
+        // palms only on a real median (two-way main roads), never in a carriageway
+        if (road.kind === 'arterial' && !road.oneway) {
           const m = new THREE.Matrix4();
           const sc = 0.9 + rand() * 0.25;
           m.compose(v3(p, 0.25), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand() * 6), new THREE.Vector3(sc, sc, sc));
@@ -1161,7 +1165,7 @@ export class World {
           if (this.opts.reserved.some((r) => boxesOverlap(r, { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw: hw + 0.05, hd: 0.9 }, 3))) continue;
           // drive on the right: cars face the direction of travel on their side
           const heading = Math.atan2(t.x * -side, t.y * -side);
-          const m = new THREE.Matrix4().compose(v3(at), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI - heading), new THREE.Vector3(1, 1, 1));
+          const m = new THREE.Matrix4().compose(v3(at, ROAD_TOP), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI - heading), new THREE.Vector3(1, 1, 1));
           const box: Box = { cx: at.x, cy: at.y, ux: t.x, uy: t.y, hw, hd: 0.95, id: `p${mats.length}` };
           this.parked.push(box);
           this.grid.add(box);

@@ -8,6 +8,8 @@ import type { VehicleId } from '../../../shared/types';
 import { cloneNode, hasModel } from './assets';
 import { buildBicycle, buildCar, buildScooter, type VehicleModel } from './models';
 import { CAR_EYE, carDash, handlebarDash, type Dash } from './cockpit';
+import { BRAND, drawLogo } from '../brand';
+import { ROAD_TOP } from './world';
 
 /** Rider eye positions measured on the generated models (tools/models/build_models.py). */
 const EYE = { scooter: new THREE.Vector3(0, 1.579, 0.05), bicycle: new THREE.Vector3(0, 1.783, -0.077) };
@@ -20,6 +22,14 @@ function detailedCar(): VehicleModel | null {
   const root = new THREE.Group();
   const lean = new THREE.Group();
   root.add(lean);
+  // the door livery carries the current name and mark
+  body.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    const swapped = mats.map((mat) => (mat.name === 'door_decal' ? doorLivery(mat as THREE.MeshStandardMaterial) : /courier_white|car_livery/.test(mat.name) ? lacquered(mat as THREE.MeshStandardMaterial) : mat));
+    m.material = Array.isArray(m.material) ? swapped : swapped[0]!;
+  });
   lean.add(body);
   const wheels: THREE.Object3D[] = [];
   const steer: THREE.Object3D[] = [];
@@ -37,6 +47,127 @@ function detailedCar(): VehicleModel | null {
   return { root, wheels, steer, lean, rider: null, steerScale: 0.8, eye: CAR_EYE };
 }
 
+/**
+ * The rider model was made with the delivery bag on its back. Drop the bag's triangles: those with a
+ * corner in the block behind the back. Measured on the model: the bag is 40 cm wide, 1.05-1.85 m high (with its lid),
+ * and leans forward with the rider, its front face at z = -0.26 m at 1.2 m height, 35 mm further
+ * forward per 10 cm up.
+ */
+function withoutBackpack(src: THREE.BufferGeometry) {
+  const g = src.clone();
+  const pos = g.attributes.position!;
+  const inBag = (i: number) => {
+    const y = pos.getY(i);
+    return Math.abs(pos.getX(i)) < 0.225 && y > 1.05 && y < 1.86 && pos.getZ(i) < -0.26 + (y - 1.2) * 0.35;
+  };
+  if (g.index) {
+    const idx = g.index.array;
+    const keep: number[] = [];
+    for (let t = 0; t < idx.length; t += 3) {
+      const a = idx[t]!;
+      const b = idx[t + 1]!;
+      const c = idx[t + 2]!;
+      if (!(inBag(a) || inBag(b) || inBag(c))) keep.push(a, b, c);
+    }
+    g.setIndex(keep);
+  }
+  return g;
+}
+
+/** A dark tinted visor over the face, part of the helmet (hidden with the head in first person). */
+function helmetVisor() {
+  // the head measures x +-0.185, y 1.47-1.72, z -0.18..0.10 (face towards +z)
+  const geo = new THREE.SphereGeometry(0.158, 28, 14, Math.PI / 2 - 1.05, 2.1, 1.08, 1.32);
+  const visor = new THREE.Mesh(
+    geo,
+    new THREE.MeshPhysicalMaterial({ color: '#0d1114', metalness: 0.3, roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.6 }),
+  );
+  visor.position.set(0, 1.585, -0.035);
+  visor.name = 'visor';
+  return visor;
+}
+
+/** Body paint with a clear coat, for sharp reflections over the colour. */
+function lacquered(src: THREE.MeshStandardMaterial) {
+  return new THREE.MeshPhysicalMaterial({
+    name: src.name,
+    color: src.color,
+    map: src.map,
+    roughness: Math.min(src.roughness, 0.35),
+    metalness: src.metalness,
+    clearcoat: 1,
+    clearcoatRoughness: 0.05,
+  });
+}
+
+let liveryTexture: THREE.CanvasTexture | null = null;
+/** The car door decal (1024 x 256, as made by tools/models/render-decals.mjs), redrawn with the brand. */
+function doorLivery(src: THREE.MeshStandardMaterial) {
+  if (!liveryTexture) {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 256;
+    const ctx = c.getContext('2d')!;
+    ctx.clearRect(0, 0, 1024, 256);
+    drawLogo(ctx, 70, 28, 200);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = BRAND.tealDark;
+    ctx.font = '700 112px "IBM Plex Sans Arabic", system-ui, sans-serif';
+    ctx.fillText(BRAND.ar, 950, 140);
+    ctx.fillStyle = '#c47a07';
+    ctx.font = '700 46px system-ui, sans-serif';
+    ctx.fillText(BRAND.en.toUpperCase().split('').join(' '), 950, 212);
+    liveryTexture = new THREE.CanvasTexture(c);
+    liveryTexture.colorSpace = THREE.SRGBColorSpace;
+    // glTF texture convention
+    liveryTexture.flipY = false;
+    liveryTexture.anisotropy = 4;
+  }
+  const m = src.clone();
+  m.map = liveryTexture;
+  return m;
+}
+
+let boxTexture: THREE.CanvasTexture | null = null;
+/** The courier's box with the Sawa Erbil mark, on a small rack over the rear wheel. */
+function deliveryBox() {
+  const g = new THREE.Group();
+  g.name = 'delivery_box';
+  if (!boxTexture) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = BRAND.amber;
+    ctx.fillRect(0, 0, 512, 512);
+    // a slightly darker rim, like the edge of a moulded box
+    ctx.strokeStyle = '#d98d0c';
+    ctx.lineWidth = 28;
+    ctx.strokeRect(14, 14, 484, 484);
+    drawLogo(ctx, 136, 62, 240);
+    ctx.fillStyle = BRAND.tealDark;
+    ctx.textAlign = 'center';
+    ctx.font = '700 84px "IBM Plex Sans Arabic", system-ui, sans-serif';
+    ctx.fillText(BRAND.ar, 256, 392);
+    ctx.font = '700 40px system-ui, sans-serif';
+    ctx.fillText(BRAND.en.toUpperCase(), 256, 452);
+    boxTexture = new THREE.CanvasTexture(c);
+    boxTexture.colorSpace = THREE.SRGBColorSpace;
+    boxTexture.anisotropy = 4;
+  }
+  const side = new THREE.MeshStandardMaterial({ map: boxTexture, roughness: 0.45, metalness: 0 });
+  const plain = new THREE.MeshStandardMaterial({ color: BRAND.amber, roughness: 0.5 });
+  // box faces: +x, -x, +y, -y, +z, -z: the mark on both sides and the back
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.4, 0.42), [side, side, plain, plain, plain, side]);
+  box.position.set(0, 1.03, -0.69);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.035, 0.44), new THREE.MeshStandardMaterial({ color: '#2b2f33', roughness: 0.6 }));
+  lid.position.set(0, 1.245, -0.69);
+  const rack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.025, 0.36), new THREE.MeshStandardMaterial({ color: '#202326', metalness: 0.6, roughness: 0.4 }));
+  rack.position.set(0, 0.818, -0.69);
+  for (const m of [box, lid, rack]) m.castShadow = true;
+  g.add(box, lid, rack);
+  return g;
+}
+
 function detailed(file: 'scooter' | 'bicycle'): VehicleModel | null {
   if (!hasModel(file)) return null;
   const body = cloneNode(file, `${file}_body`);
@@ -52,8 +183,25 @@ function detailed(file: 'scooter' | 'bicycle'): VehicleModel | null {
   front.position.set(0, 0, 0);
   pivot.add(front);
   lean.add(body, pivot, rear);
+  body.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && !Array.isArray(m.material) && /scooter_paint|bike_frame/.test(m.material.name)) m.material = lacquered(m.material as THREE.MeshStandardMaterial);
+  });
   const rider = cloneNode(file, `rider_${file}`);
-  if (rider) lean.add(rider);
+  if (rider) {
+    lean.add(rider);
+    const head = rider.getObjectByName(`rider_${file}_head`);
+    if (head) head.add(helmetVisor());
+    if (file === 'scooter') {
+      // the delivery box rides on the scooter's rear rack, not on the rider's back
+      const torso = rider.getObjectByName('rider_scooter_body');
+      torso?.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) m.geometry = withoutBackpack(m.geometry);
+      });
+      lean.add(deliveryBox());
+    }
+  }
   return {
     root,
     wheels: [front, rear],
@@ -374,10 +522,8 @@ export class Vehicle {
       this.fall(cross >= 0 ? 1 : -1);
       fell = true;
     }
-    if (this.dyn.idleRpm && (fell || impact > (this.dyn.bike ? 6.5 : 9))) {
-      stalled = this.engineOn;
-      this.engineOn = false;
-    }
+    // the engine keeps running: after a fall the player only goes back to the road
+    void stalled;
     return { speed: impact, severity, fell, stalled };
   }
 
@@ -387,8 +533,11 @@ export class Vehicle {
     this.fallen = true;
     this.fallSide = side >= 0 ? 1 : -1;
     this.shake = 1;
-    if (this.dyn.idleRpm) this.engineOn = false;
+    this.fallenAt = performance.now();
   }
+
+  /** when the bike went down (ms, performance.now) */
+  fallenAt = 0;
 
   /** Pick the bike up (or straighten the car) where it is. */
   standUp() {
@@ -412,7 +561,8 @@ export class Vehicle {
   }
 
   sync() {
-    this.object.position.set(this.x, this.z, -this.y);
+    // wheels on the asphalt, which stands a little above the ground plane
+    this.object.position.set(this.x, this.z + ROAD_TOP, -this.y);
     this.object.rotation.y = Math.PI - this.heading;
   }
 }

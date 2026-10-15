@@ -5,13 +5,13 @@ Last run on 2026-10-14 (after the real buildings, day/night and weather, new veh
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | **pass** |
-| API, rules, geometry and sun path | `npm test` | **32 / 32 passed** |
+| API, rules, geometry, sun path and cancel penalty | `npm test` | **35 / 35 passed** |
 | Production build | `npm run build` | **pass** |
 | Browser end-to-end | `npm run test:e2e` | **7 / 7 passed** |
 
 ## The living world, checked in the browser (`e2e/world.spec.ts`)
 
-1. **Crash:** the scooter is set on a building wall at 45 km/h. After the impact it lies on its side, the engine is off and its speed is under 4 m/s (it does not pass through the wall). The "pick up the bike" button stands it up, the "start the engine" button restarts the engine, and "back to the road" puts it upright in a lane.
+1. **Crash:** the scooter is set on a building wall at 45 km/h. The impact throws it down without passing through the wall; the engine keeps running, and a moment later the rider is put back upright in a lane on the road ("back to the road" does it at once).
 2. **Mirrors:** both scooter mirrors' render targets hold a real picture of the street behind (mean brightness and contrast checked pixel by pixel).
 3. **Night and rain:** at 22:00 the street-lamp light pools, car lamps and lit windows are on and the sun is down. In heavy rain the rain is drawn, the road is fully wet, grip drops below 75 % and visibility (haze distance) drops under 260 m. After the rain stops the road dries over game time and grip returns.
 

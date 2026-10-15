@@ -7,6 +7,7 @@ import {
   DISCOVERY_RADIUS_M,
   DROPOFF_RADIUS_M,
   MAX_GAME_SPEED_MS,
+  cancelPenalty,
   ON_TIME_BONUS,
   PICKUP_RADIUS_M,
   canTransition,
@@ -352,11 +353,18 @@ export async function playerRoutes(app: FastifyInstance, ctx: AppContext) {
       const p = await currentPlayer(req, tx);
       const run = await lockRun(tx, p.id, runId);
       requireTransition(run.status, 'cancelled');
+      // cancelling costs coins after a short grace period (shared/rules.ts)
+      const penalty = cancelPenalty(run, Date.now());
       const { rows } = await tx.query(
         `UPDATE mission_runs SET status = 'cancelled', cancelled_at = now() WHERE id = $1 RETURNING ${RUN_COLUMNS}`,
         [runId],
       );
-      return { run: runDto(rows[0]) };
+      let coins = p.coins;
+      if (penalty > 0) {
+        const upd = await tx.query(`UPDATE players SET coins = GREATEST(0, coins - $2) WHERE id = $1 RETURNING coins`, [p.id, penalty]);
+        coins = upd.rows[0].coins;
+      }
+      return { run: runDto(rows[0]), penalty, coins };
     });
   });
 

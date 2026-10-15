@@ -10,7 +10,7 @@ export const DROPOFF_RADIUS_M = 16;
 /** Distance at which a merchant counts as "discovered" by the player. */
 export const DISCOVERY_RADIUS_M = 45;
 /** No vehicle in the game is faster than this (m/s); used to reject impossible deliveries. */
-export const MAX_GAME_SPEED_MS = 26;
+export const MAX_GAME_SPEED_MS = 37;
 /** On-time bonus as a fraction of the base coin reward. */
 export const ON_TIME_BONUS = 0.25;
 
@@ -51,8 +51,8 @@ export const VEHICLE_SPECS: Record<VehicleId, VehicleSpec> = {
     id: 'bicycle',
     name_ar: 'دراجة هوائية',
     name_en: 'Bicycle',
-    maxSpeed: 9,
-    acceleration: 3.2,
+    maxSpeed: 11,
+    acceleration: 3.8,
     braking: 7,
     steering: 2.6,
     radius: 0.9,
@@ -62,9 +62,9 @@ export const VEHICLE_SPECS: Record<VehicleId, VehicleSpec> = {
     id: 'motorcycle',
     name_ar: 'دراجة نارية',
     name_en: 'Motorcycle',
-    maxSpeed: 20,
-    acceleration: 6.5,
-    braking: 10,
+    maxSpeed: 27.8,
+    acceleration: 8.5,
+    braking: 11,
     steering: 2.2,
     radius: 1.1,
     unlockLevel: 1,
@@ -73,8 +73,8 @@ export const VEHICLE_SPECS: Record<VehicleId, VehicleSpec> = {
     id: 'car',
     name_ar: 'سيارة توصيل',
     name_en: 'Delivery car',
-    maxSpeed: 25,
-    acceleration: 5.2,
+    maxSpeed: 36.1,
+    acceleration: 7.2,
     braking: 12,
     steering: 1.6,
     radius: 2.1,
@@ -151,4 +151,17 @@ export function dailyChallenges(day: string): DailyChallenge[] {
 /** Calendar day in Erbil (UTC+3, no DST) as YYYY-MM-DD. */
 export function erbilDay(d: Date = new Date()): string {
   return new Date(d.getTime() + 3 * 3600_000).toISOString().slice(0, 10);
+}
+
+/** Seconds after accepting during which a mission can be cancelled for free (an accidental accept). */
+export const CANCEL_GRACE_S = 30;
+
+/**
+ * Coins lost by cancelling a mission: nothing within the grace period if the order was not collected;
+ * otherwise 20 % of the reward (at least 5) before collecting, and 50 % once the order is in hand.
+ */
+export function cancelPenalty(run: { reward_coins: number; accepted_at: string | Date | null; collected_at: string | Date | null }, nowMs: number): number {
+  const accepted = run.accepted_at ? new Date(run.accepted_at).getTime() : nowMs;
+  if (!run.collected_at && nowMs - accepted < CANCEL_GRACE_S * 1000) return 0;
+  return Math.max(5, Math.round(run.reward_coins * (run.collected_at ? 0.5 : 0.2)));
 }

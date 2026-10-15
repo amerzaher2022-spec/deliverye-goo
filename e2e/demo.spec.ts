@@ -203,7 +203,7 @@ test('investor demo: dashboard to delivery and back', async ({ page, context }) 
 test('English interface keeps working and the admin API refuses anonymous writes', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('lang-toggle').click();
-  await expect(page.getByTestId('main-menu')).toContainText('Erbil Delivery World');
+  await expect(page.getByTestId('main-menu')).toContainText('Sawa Erbil');
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
   const status = await page.evaluate(async () => {
     const r = await fetch('/api/admin/merchants', { method: 'POST', headers: { 'content-type': 'application/json', 'x-dg-client': '1' }, body: '{}' });

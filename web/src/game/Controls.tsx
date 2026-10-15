@@ -159,7 +159,7 @@ function SteerWheel({ input, car }: { input: DriveInput; car: boolean }) {
 
 export type ControlMode = 'buttons' | 'joystick' | 'wheel';
 
-export function TouchControls({ input, mode, car }: { input: DriveInput; mode: ControlMode; car: boolean }) {
+export function TouchControls({ input, mode, car, onHorn }: { input: DriveInput; mode: ControlMode; car: boolean; onHorn?: () => void }) {
   const { lang } = useI18n();
   const steer = useRef({ left: false, right: false });
   const applySteer = () => {
@@ -198,6 +198,11 @@ export function TouchControls({ input, mode, car }: { input: DriveInput; mode: C
         )}
       </div>
       <div className="ctrl right" dir="ltr">
+        {onHorn && (
+          <button className="pad horn" aria-label={lang === 'ar' ? 'زمور' : 'Horn'} data-testid="horn" onPointerDown={(e) => { e.preventDefault(); onHorn(); }}>
+            <Icon name="megaphone" size={20} />
+          </button>
+        )}
         <HoldPad className="brake" label="brake" onChange={(d) => (input.brake = d ? 1 : 0)}>
           <span>
             <Icon name="minus" size={26} strokeWidth={2.4} />

@@ -1,7 +1,7 @@
 // The living world, checked in a real browser (software GPU, low quality so frames come quickly):
-// a crash into a building wall throws the scooter down and stalls the engine, the rider can pick it up
-// and restart it; the mirrors really render the street behind; night turns on lamps, car lights and
-// lit windows; rain wets the road, lowers grip and dries up afterwards.
+// a crash into a building wall throws the scooter down and the rider is put back on the road; the
+// mirrors really render the street behind; night turns on lamps, car lights and lit windows; rain wets
+// the road, lowers grip and dries up afterwards.
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -21,7 +21,7 @@ async function startGame(page: Page) {
   for (let i = 0; i < 3; i++) await page.getByTestId('manager-dialog').getByRole('button').click();
 }
 
-test('crash into a wall: the scooter goes down, the engine stalls, pick up and restart', async ({ page }) => {
+test('crash into a wall: the scooter goes down and the rider is put back on the road', async ({ page }) => {
   await startGame(page);
   const placed = await page.evaluate(() => {
     const e = (window as any).__dg.engine;
@@ -42,26 +42,28 @@ test('crash into a wall: the scooter goes down, the engine stalls, pick up and r
     return { cx: b.cx, cy: b.cy };
   });
   expect(placed).not.toBeNull();
-  await frames(page, 6);
+  // step until the impact (frames are slow on the software GPU)
+  for (let i = 0; i < 12; i++) {
+    await frames(page, 1);
+    if (await page.evaluate(() => (window as any).__dg.engine.vehicle.fallenAt > 0)) break;
+  }
   const after = await page.evaluate(() => {
     const v = (window as any).__dg.engine.vehicle;
-    return { fallen: v.fallen, engineOn: v.engineOn, speed: Math.abs(v.speed), shake: v.shake };
+    return { fellAt: v.fallenAt, engineOn: v.engineOn, speed: Math.abs(v.speed) };
   });
-  expect(after.fallen).toBe(true);
-  expect(after.engineOn).toBe(false);
-  expect(after.speed).toBeLessThan(4);
-  // the game offers to pick the bike up, then to restart the engine
-  await page.getByTestId('stand-up').click();
-  await expect(page.getByTestId('restart-engine')).toBeVisible();
-  await page.getByTestId('restart-engine').click();
-  await expect.poll(() => page.evaluate(() => (window as any).__dg.engine.vehicle.engineOn), { timeout: 60_000 }).toBe(true);
-  // and "back to the road" puts it upright in a lane
-  await page.evaluate(() => (window as any).__dg.engine.resetToRoad());
+  // it went down, did not pass through the wall, and the engine keeps running
+  expect(after.fellAt).toBeGreaterThan(0);
+  expect(after.engineOn).toBe(true);
+  expect(after.speed).toBeLessThan(6);
+  // a moment later the rider is back on the road, upright, engine running
+  await expect.poll(() => page.evaluate(() => (window as any).__dg.engine.vehicle.fallen), { timeout: 90_000 }).toBe(false);
   const onRoad = await page.evaluate(() => {
     const e = (window as any).__dg.engine;
-    return { fallen: e.vehicle.fallen, edge: e.prevEdge };
+    return { fallen: e.vehicle.fallen, edge: e.prevEdge, engineOn: e.vehicle.engineOn };
   });
   expect(onRoad.fallen).toBe(false);
+  expect(onRoad.engineOn).toBe(true);
+  expect(onRoad.edge).toBeLessThanOrEqual(0);
 });
 
 test('mirrors render the street behind', async ({ page }) => {

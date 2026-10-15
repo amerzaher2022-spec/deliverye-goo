@@ -10,7 +10,7 @@ import type { RoadGraph } from '../../../shared/roads';
 import type { DistrictData } from '../../../shared/types';
 import type { Box } from './collision';
 import { cloneNode, hasModel, parkedMaterial } from './assets';
-import { PARKED_KINDS, PARKED_LEN, pickKind, type ParkedKind, type Quality } from './world';
+import { PARKED_KINDS, PARKED_LEN, pickKind, ROAD_TOP, type ParkedKind, type Quality } from './world';
 
 export const TRAFFIC_SIZE: Record<Quality, number> = { low: 14, medium: 30, high: 46 };
 
@@ -636,7 +636,7 @@ export class Traffic {
       const im = this.meshes.get(car.kind);
       if (!im) return;
       if (car.vmax === 0) this.m.makeScale(0, 0, 0);
-      else this.m.compose(new THREE.Vector3(car.x, car.z + 0.03, -car.y), this.q.setFromAxisAngle(this.up, Math.PI - car.h), new THREE.Vector3(1, 1, 1));
+      else this.m.compose(new THREE.Vector3(car.x, car.z + ROAD_TOP, -car.y), this.q.setFromAxisAngle(this.up, Math.PI - car.h), new THREE.Vector3(1, 1, 1));
       im.setMatrixAt(car.idx, this.m);
       if (this.carLights?.visible) {
         if (car.vmax !== 0) this.m.scale(new THREE.Vector3(1, 1, car.box.hw));

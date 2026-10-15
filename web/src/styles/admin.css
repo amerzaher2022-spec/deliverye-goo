@@ -64,6 +64,13 @@
   padding: 4px 8px 18px;
   color: #f3efe8;
 }
+.a-brand-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: block;
+  flex: none;
+}
 .a-brand-mark {
   width: 32px;
   height: 32px;

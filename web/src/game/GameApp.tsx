@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { district as bundledDistrict } from '../../../shared/district';
 import { toLocal } from '../../../shared/geo';
 import { buildRoadGraph } from '../../../shared/roads';
-import { VEHICLE_SPECS } from '../../../shared/rules';
+import { cancelPenalty, VEHICLE_SPECS } from '../../../shared/rules';
 import { VEHICLES, type Category, type DistrictData, type Merchant, type Mission, type MissionRun, type PlayerProfile, type SponsorshipPackage, type VehicleId } from '../../../shared/types';
 import { ApiError, api } from '../api';
 import { Coin, Icon } from '../icons';
@@ -80,6 +80,7 @@ type Overlay =
   | { kind: 'map' }
   | { kind: 'pause' }
   | { kind: 'settings' }
+  | { kind: 'cancel' }
   | { kind: 'progress'; tab?: 'history' | 'achievements' | 'challenges' }
   | { kind: 'packages' }
   | { kind: 'directory' }
@@ -175,8 +176,7 @@ export default function GameApp() {
         onTapMerchant: (id) => setOverlay({ kind: 'card', id }),
         onBump: () => toast(lang === 'ar' ? 'انتبه — الطلبية هشة' : 'Careful — the order is fragile'),
         onCrash: (r) => {
-          if (r.fell) toast(lang === 'ar' ? 'وقعت! ارفع الدراجة أو ارجع إلى الطريق' : 'You came off! Pick up the bike or go back to the road');
-          else if (r.stalled) toast(lang === 'ar' ? 'انطفأ المحرك — شغّله من جديد' : 'The engine stalled — start it again');
+          if (r.fell) toast(lang === 'ar' ? 'وقعت! ستعود إلى الطريق' : 'You came off! Back to the road in a moment');
         },
         onRedLight: () => toast(lang === 'ar' ? 'قطعت الإشارة الحمراء! انتبه للمرور' : 'You ran a red light! Watch the traffic'),
         onSlow: (q) => setSettingsState((s) => {
@@ -229,7 +229,7 @@ export default function GameApp() {
     return () => window.removeEventListener('resize', place);
   }, [lang, world !== null, player !== null]);
   useEffect(() => {
-    const paused = screen === 'play' && (overlay.kind === 'pause' || overlay.kind === 'settings');
+    const paused = screen === 'play' && (overlay.kind === 'pause' || overlay.kind === 'settings' || overlay.kind === 'cancel');
     engineRef.current?.setPaused(paused);
   }, [overlay, screen]);
   useEffect(() => {
@@ -357,9 +357,10 @@ export default function GameApp() {
 
   const cancelRun = async () => {
     if (!run) return;
-    await api.post(`/api/player/runs/${run.id}/cancel`).catch(() => {});
+    const res = await api.post<{ penalty: number }>(`/api/player/runs/${run.id}/cancel`).catch(() => null);
     await refreshPlayer();
     setOverlay({ kind: 'none' });
+    if (res && res.penalty > 0) toast(lang === 'ar' ? `أُلغيت المهمة — خُصم ${res.penalty} عملة` : `Mission cancelled — ${res.penalty} coins deducted`);
   };
 
   const startPlaying = () => {
@@ -448,10 +449,8 @@ export default function GameApp() {
         <div className="menu" data-testid="main-menu">
           <div className="menu-col">
             <div className="brand">
-              <span className="brand-mark">
-                <Icon name="package" size={18} />
-              </span>
-              {lang === 'ar' ? 'Erbil Delivery World' : 'عالم توصيل أربيل'}
+              <img className="brand-logo" src="/icons/icon.svg" alt="" width={28} height={28} />
+              {lang === 'ar' ? 'SAWA ERBIL' : 'سوا اربيل'}
             </div>
             <div>
               <h1>{t('appName')}</h1>
@@ -624,18 +623,8 @@ export default function GameApp() {
 
           <div className={`context-action ${settings.camera === 'rider' ? 'fp' : ''}`}>
             {hud?.fallen && (
-              <>
-                <button className="btn primary" onClick={() => engineRef.current?.standUp()} data-testid="stand-up">
-                  <Icon name="reset" size={17} /> {lang === 'ar' ? 'ارفع الدراجة' : 'Pick up the bike'}
-                </button>
-                <button className="btn" style={{ background: 'var(--surface)' }} onClick={() => engineRef.current?.resetToRoad()} data-testid="reset-road">
-                  {lang === 'ar' ? 'العودة إلى الطريق' : 'Back to the road'}
-                </button>
-              </>
-            )}
-            {!hud?.fallen && hud?.engineOff && (
-              <button className="btn primary" onClick={() => engineRef.current?.restartEngine()} data-testid="restart-engine">
-                <Icon name="play" size={17} /> {lang === 'ar' ? 'شغّل المحرك' : 'Start the engine'}
+              <button className="btn primary" onClick={() => engineRef.current?.resetToRoad()} data-testid="reset-road">
+                <Icon name="reset" size={17} /> {lang === 'ar' ? 'العودة إلى الطريق' : 'Back to the road'}
               </button>
             )}
             {hud?.zone === 'pickup' &&
@@ -669,7 +658,7 @@ export default function GameApp() {
             <span>{lang === 'ar' ? 'كم/س' : 'KM/H'}</span>
           </div>
 
-          <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} car={player?.vehicle === 'car'} />
+          <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} car={player?.vehicle === 'car'} onHorn={() => engineRef.current?.audio.horn(0, player?.vehicle === 'car' ? 1 : 1.25)} />
           {portrait && showRotate && (
             <div className="panel rotate-hint">
               <Icon name="reset" size={14} /> {t('rotateHint')}
@@ -749,7 +738,7 @@ export default function GameApp() {
               <Icon name="history" size={17} /> {t('history')} · {t('achievements')}
             </button>
             {run && (
-              <button className="btn danger" onClick={() => void cancelRun()} data-testid="cancel-run">
+              <button className="btn danger" onClick={() => setOverlay({ kind: 'cancel' })} data-testid="cancel-run">
                 <Icon name="close" size={17} /> {t('cancelMission')}
               </button>
             )}
@@ -766,6 +755,32 @@ export default function GameApp() {
               <Icon name="dashboard" size={17} /> {t('dashboard')}
             </a>
           </div>
+        </Sheet>
+      )}
+      {overlay.kind === 'cancel' && run && (
+        <Sheet title={t('cancelMission')} icon="close" onClose={() => setOverlay({ kind: 'pause' })}>
+          {(() => {
+            const penalty = cancelPenalty(run, Date.now());
+            return (
+              <div className="list">
+                <p data-testid="cancel-penalty">
+                  {penalty === 0
+                    ? lang === 'ar'
+                      ? 'يمكنك الإلغاء الآن بدون خصم (خلال أول 30 ثانية من القبول وقبل الاستلام).'
+                      : 'You can cancel now at no cost (within 30 seconds of accepting, before collecting).'
+                    : lang === 'ar'
+                      ? `الإلغاء سيخصم ${penalty} عملة من رصيدك${run.collected_at ? ' لأن الطلب أصبح معك' : ''}.`
+                      : `Cancelling will cost ${penalty} coins${run.collected_at ? ' because you already have the order' : ''}.`}
+                </p>
+                <button className="btn primary" onClick={() => setOverlay({ kind: 'none' })}>
+                  <Icon name="play" size={14} /> {lang === 'ar' ? 'أكمل التوصيل' : 'Keep delivering'}
+                </button>
+                <button className="btn danger" onClick={() => void cancelRun()} data-testid="confirm-cancel">
+                  <Icon name="close" size={16} /> {penalty === 0 ? t('cancelMission') : lang === 'ar' ? `ألغِ وادفع ${penalty}` : `Cancel and pay ${penalty}`}
+                </button>
+              </div>
+            );
+          })()}
         </Sheet>
       )}
       {overlay.kind === 'settings' && (
@@ -816,12 +831,12 @@ export default function GameApp() {
           </div>
           <p className="small muted">
             {lang === 'ar'
-              ? 'لوحة المفاتيح: الأسهم أو WASD للقيادة، المسافة للفرامل، H للزمور، E لتشغيل المحرك، R للعودة إلى الطريق.'
-              : 'Keyboard: arrows or WASD to drive, Space to brake, H horn, E start the engine, R back to the road.'}
+              ? 'لوحة المفاتيح: الأسهم أو WASD للقيادة، المسافة للفرامل، H للزمور، R للعودة إلى الطريق.'
+              : 'Keyboard: arrows or WASD to drive, Space to brake, H horn, R back to the road.'}
           </p>
           <p className="small muted">{world && pick(world.district.attribution, world.district.attribution)}</p>
           <p className="small faint">
-            {lang === 'ar' ? 'جميع الشخصيات والمركبات ثلاثية الأبعاد مصممة خصيصاً لعالم توصيل أربيل.' : 'All 3D characters and vehicles were designed for Erbil Delivery World.'}
+            {lang === 'ar' ? 'جميع الشخصيات والمركبات ثلاثية الأبعاد مصممة خصيصاً لسوا اربيل.' : 'All 3D characters and vehicles were designed for Sawa Erbil.'}
           </p>
         </Sheet>
       )}

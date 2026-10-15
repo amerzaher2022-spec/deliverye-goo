@@ -713,6 +713,12 @@
   color: var(--text-2);
   text-transform: uppercase;
 }
+.brand-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: block;
+}
 .brand-mark {
   width: 30px;
   height: 30px;
@@ -817,24 +823,24 @@
   gap: 6px;
 }
 
-/* dispatch dialog */
+/* dispatch dialog: a compact bar at the top, so it never covers the road ahead */
 .dialog {
   position: absolute;
   left: 50%;
-  bottom: calc(110px + var(--safe-b));
+  top: calc(64px + var(--safe-t));
   transform: translateX(-50%);
-  width: min(560px, calc(100% - 24px));
+  width: min(520px, calc(100% - 24px));
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  padding: 12px 12px 12px 14px;
+  padding: 8px 10px 8px 12px;
   z-index: 28;
   animation: rise 0.22s ease;
 }
 .dialog .avatar {
   position: relative;
-  width: 58px;
-  height: 58px;
+  width: 44px;
+  height: 44px;
   flex: none;
   overflow: hidden;
   border-radius: 50%;
@@ -862,8 +868,8 @@
 }
 .dialog p {
   margin: 2px 0 0;
-  line-height: 1.55;
-  font-size: 0.92rem;
+  line-height: 1.45;
+  font-size: 0.86rem;
 }
 
 .result {
@@ -1027,7 +1033,7 @@
     bottom: calc(200px + var(--safe-b));
   }
   .dialog {
-    bottom: calc(146px + var(--safe-b));
+    top: calc(118px + var(--safe-t));
   }
   .rotate-hint {
     bottom: auto;
@@ -1075,8 +1081,8 @@
     bottom: calc(66px + var(--safe-b));
   }
   .dialog {
-    bottom: calc(12px + var(--safe-b));
-    width: min(520px, calc(100% - 300px));
+    top: calc(8px + var(--safe-t));
+    width: min(480px, calc(100% - 380px));
   }
   .fineprint {
     display: none;
@@ -1091,4 +1097,13 @@
 .sheet .list > .btn {
   justify-content: flex-start;
   min-height: 46px;
+}
+
+/* horn: a small round button above the pedals */
+.pad.horn {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  align-self: flex-start;
+  margin-top: -6px;
 }

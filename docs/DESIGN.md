@@ -66,7 +66,7 @@ The MakeHuman-based people were replaced by an original cast built from this pro
   - factory worker in a high-visibility vest and hard hat
 - **Dispatcher portrait:** Kak Hama in the branded polo with a headset.
 - **Cars:**
-  - The player's courier hatchback is white with a charcoal roof, an amber shoulder stripe and «عالم توصيل أربيل» on the front doors.
+  - The player's courier hatchback is white with a charcoal roof, an amber shoulder stripe and the Sawa Erbil mark with «سوا اربيل» on the front doors (redrawn in the game from `web/src/brand.ts`). The scooter carries the courier box with the mark on a rear rack; the rider wears a full-face helmet with a dark visor.
   - Streets get saloons, large 4×4s and double-cab pickups, the cars most common in Erbil, in realistic colours.
   - The street cars show the same lamps, grilles, glass, wipers, panel lines and wheels as the full models: that detail is baked into a texture, so a whole street of cars stays cheap to draw. The paint is glossy, the chrome is metallic and the glass reflects, each from a mask in the texture.
 - **Roads:**

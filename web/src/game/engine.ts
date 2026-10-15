@@ -13,7 +13,7 @@ import { circleVsBox } from './collision';
 import { Crowd, CROWD_SIZE } from './crowd';
 import { MerchantView, merchantFrame, roleFor, targetBeacon } from './merchants';
 import { Vehicle, type DriveInput, type ImpactResult } from './vehicle';
-import { ribbon, v3, World, type Quality } from './world';
+import { ribbon, ROAD_TOP, v3, World, type Quality } from './world';
 import { Traffic } from './traffic';
 import { PostProcess } from './post';
 import { Atmosphere } from './atmosphere';
@@ -85,6 +85,8 @@ export class Engine {
   private crowdKey = '';
   private sun = new THREE.DirectionalLight('#ffe8c7', 2.6);
   private hemi = new THREE.HemisphereLight('#d4e3f2', '#9a8662', 0.95);
+  /** fill light on the vehicle in the menu */
+  private showLight = new THREE.PointLight('#fff1de', 0, 14, 1.4);
   /** time of day and weather */
   atmos!: Atmosphere;
   private nightLights: NightLights | null = null;
@@ -115,6 +117,7 @@ export class Engine {
   readonly touch: DriveInput = { throttle: 0, brake: 0, steer: 0 };
   private cameraMode: CameraMode = 'chase';
   private baseFov = 55;
+  private speedFov = 0;
   private camPos = new THREE.Vector3();
   private camLook = new THREE.Vector3();
   private run: MissionRun | null = null;
@@ -168,7 +171,7 @@ export class Engine {
     }
     pmrem.dispose();
 
-    this.scene.add(this.hemi);
+    this.scene.add(this.hemi, this.showLight);
     this.sun.position.copy(this.sunDir).multiplyScalar(260);
     this.sun.shadow.camera.near = 10;
     this.sun.shadow.camera.far = 500;
@@ -531,7 +534,6 @@ export class Engine {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (e.type === 'keydown') {
-      if (!e.repeat && e.code === 'KeyE') this.restartEngine();
       if (!e.repeat && e.code === 'KeyR') this.resetToRoad();
       if (!e.repeat && e.code === 'KeyH') this.audio.horn(0, this.vehicle.id === 'car' ? 1 : 1.25);
       this.keys.add(e.code);
@@ -625,6 +627,8 @@ export class Engine {
   private update(dt: number, t: number) {
     const v = this.vehicle;
     this.input = this.readInput();
+    // after a fall the rider is put back on the road once the bike has stopped sliding
+    if (v.fallen && Math.abs(v.speed) < 0.5 && performance.now() - v.fallenAt > 2500) this.resetToRoad();
     const edge = distanceToRoadEdge(this.graph, { x: v.x, y: v.y });
     if (t - this.gripAt > 0.15) {
       this.gripAt = t;
@@ -823,7 +827,11 @@ export class Engine {
       } else v.rider.visible = !firstPerson;
     }
     const near = firstPerson && v.eye ? 0.06 : 0.5;
-    const fov = this.baseFov + (firstPerson && v.eye ? (v.id === 'car' ? 16 : 24) : 0);
+    // the view widens with speed, as it does in racing games: the street seems to rush past
+    const want = Math.min(1, Math.max(0, (Math.abs(v.speed) - 6) / 24)) * (firstPerson ? 4 : 12);
+    this.speedFov += (want - this.speedFov) * 0.06;
+    const fov = Math.round((this.baseFov + (firstPerson && v.eye ? (v.id === 'car' ? 16 : 24) : 0) + this.speedFov) * 10) / 10;
+    this.post.setSpeed(Math.min(1, Math.max(0, (Math.abs(v.speed) - 11) / 18)));
     if (this.camera.near !== near || this.camera.fov !== fov) {
       this.camera.near = near;
       this.camera.fov = fov;
@@ -849,6 +857,8 @@ export class Engine {
 
   private updateCamera(dt: number, snap = false) {
     const v = this.vehicle;
+    // the vehicle stands on the asphalt (ROAD_TOP above the ground): so does the camera
+    const vz = v.z + ROAD_TOP;
     const fx = Math.sin(v.heading);
     const fy = Math.cos(v.heading);
     const car = v.id === 'car';
@@ -862,11 +872,12 @@ export class Engine {
     }
     this.camera.up.set(0, 1, 0);
     if (this.cameraMode === 'showcase') {
-      // slow three-quarter orbit around the vehicle for the menu
-      const a = this.elapsed * 0.08 + 0.75;
-      const dist = car ? 7.2 : 3.9;
-      const want = new THREE.Vector3(v.x + Math.sin(v.heading + a) * dist, v.z + (car ? 1.9 : 1.55), -(v.y + Math.cos(v.heading + a) * dist));
-      const centre = new THREE.Vector3(v.x, v.z + (car ? 0.8 : 0.9), -v.y);
+      // slow orbit around the vehicle for the menu: low and close, from the front three-quarters, with a
+      // soft fill light so the rider and the paint read clearly
+      const a = this.elapsed * 0.07 + 0.55;
+      const dist = car ? 6.4 : 3.3;
+      const want = new THREE.Vector3(v.x + Math.sin(v.heading + a) * dist, vz + (car ? 1.55 : 1.2), -(v.y + Math.cos(v.heading + a) * dist));
+      const centre = new THREE.Vector3(v.x, vz + (car ? 0.75 : 0.95), -v.y);
       const dir = centre.clone().sub(want).normalize();
       const right = dir.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
       const look = centre.add(right.multiplyScalar(this.showcaseOffset.x * (car ? 1.5 : 1))).add(new THREE.Vector3(0, this.showcaseOffset.y, 0));
@@ -875,9 +886,12 @@ export class Engine {
       this.camLook.lerp(look, k);
       this.camera.position.copy(this.camPos);
       this.camera.lookAt(this.camLook);
+      this.showLight.position.copy(this.camPos).add(new THREE.Vector3(0, 1.6, 0)).addScaledVector(right, -1.2);
+      this.showLight.intensity = car ? 40 : 22;
       this.showRider(false);
       return;
     }
+    this.showLight.intensity = 0;
     if (this.cameraMode === 'far') {
       back = 22;
       up = 14;
@@ -906,8 +920,8 @@ export class Engine {
     const side = rider && v.eye ? v.eye.x : 0;
     const lx = -fy * side;
     const ly = fx * side;
-    const want = new THREE.Vector3(v.x - fx * back + lx, v.z + up, -(v.y - fy * back + ly));
-    const look = new THREE.Vector3(v.x + fx * ahead + lx, v.z + (rider ? up - drop : 1.4), -(v.y + fy * ahead + ly));
+    const want = new THREE.Vector3(v.x - fx * back + lx, vz + up, -(v.y - fy * back + ly));
+    const look = new THREE.Vector3(v.x + fx * ahead + lx, vz + (rider ? up - drop : 1.4), -(v.y + fy * ahead + ly));
     // the rider's head goes with the bike's lean, the body's pitch and the bumps of the road
     const rightX = fy;
     const rightZ = fx;

@@ -93,7 +93,9 @@ let atlasMaterial: THREE.MeshStandardMaterial | null = null;
 export function parkedMaterial(): THREE.MeshStandardMaterial | null {
   if (!atlas) return null;
   if (atlasMaterial) return atlasMaterial;
-  const m = new THREE.MeshStandardMaterial({ map: atlas, roughness: 0.32, metalness: 0.2 });
+  // car paint is a coloured base under a glossy lacquer: a clear coat (on the paint only) gives the
+  // sharp sky and street reflections of a polished car over the softer colour
+  const m = new THREE.MeshPhysicalMaterial({ map: atlas, roughness: 0.38, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.06 });
   m.name = 'parked_atlas';
   m.userData.shared = true;
   m.onBeforeCompile = (shader) => {
@@ -117,7 +119,14 @@ export function parkedMaterial(): THREE.MeshStandardMaterial | null {
         '#include <roughnessmap_fragment>',
         'float roughnessFactor = mix( mix( mix( 0.85, 0.3, metalMask ), 0.1, glassMask ), roughness, paintMask );',
       )
-      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = max( metalness * paintMask, 0.9 * metalMask );');
+      .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = max( metalness * paintMask, 0.9 * metalMask );')
+      .replace(
+        '#include <lights_physical_fragment>',
+        `#include <lights_physical_fragment>
+        #ifdef USE_CLEARCOAT
+        material.clearcoat *= paintMask;
+        #endif`,
+      );
   };
   atlasMaterial = m;
   return m;

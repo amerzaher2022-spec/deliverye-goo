@@ -21,6 +21,7 @@ const GradeShader = {
     saturation: { value: 1.12 },
     vignette: { value: 0.28 },
     aspect: { value: 1.0 },
+    speed: { value: 0.0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -31,9 +32,18 @@ const GradeShader = {
     uniform float saturation;
     uniform float vignette;
     uniform float aspect;
+    uniform float speed;
     varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
+      // at speed, a radial blur that grows towards the edges (the centre stays sharp)
+      if (speed > 0.01) {
+        vec2 d = (vUv - 0.5);
+        float k = speed * 0.035 * smoothstep(0.12, 0.6, length(d * vec2(aspect, 1.0)));
+        vec4 acc = c;
+        for (int i = 1; i <= 5; i++) acc += texture2D(tDiffuse, vUv - d * k * float(i) / 5.0);
+        c = acc / 6.0;
+      }
       vec3 col = c.rgb;
       // contrast around mid grey, then saturation
       col = (col - 0.5) * contrast + 0.5;
@@ -89,6 +99,11 @@ export class PostProcess {
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h);
     if (this.grade) this.grade.uniforms.aspect!.value = w / Math.max(1, h);
+  }
+
+  /** 0..1: how much speed blur to add */
+  setSpeed(s: number) {
+    if (this.grade) this.grade.uniforms.speed!.value = s;
   }
 
   render() {

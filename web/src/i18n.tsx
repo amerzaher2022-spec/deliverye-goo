@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 export type Lang = 'ar' | 'en';
 
 const STRINGS = {
-  appName: { ar: 'عالم توصيل أربيل', en: 'Erbil Delivery World' },
+  appName: { ar: 'سوا اربيل', en: 'Sawa Erbil' },
   tagline: { ar: 'وصّل الطلبات على شارع الستين', en: 'Deliver orders along Sixty Meter Street' },
   demoNotice: {
     ar: 'نسخة عرض للمستثمرين — جميع الأنشطة التجارية والأسعار وهمية، والعملة افتراضية داخل اللعبة فقط.',

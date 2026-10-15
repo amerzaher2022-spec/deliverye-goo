@@ -1,12 +1,13 @@
 # 3D model credits
 
-Every 3D model, texture, logo decal and portrait in this game was made for Erbil Delivery World. No third-party models, scans, characters or textures are used, so there is no external licence to clear.
+Every 3D model, texture, logo decal and portrait in this game was made for Sawa Erbil (سوا اربيل, formerly Erbil Delivery World). No third-party models, scans, characters or textures are used, so there is no external licence to clear.
 
 | What | How it was made | Source |
 |---|---|---|
 | People: courier, restaurant staff, pizza runner, Kurdish man in shal u shapik, young man, woman in a coat and headscarf, factory worker, dispatcher | Own skeleton and anatomy written as signed-distance sculpts, dressed and posed in code. Each one is baked to a game mesh with colour, ambient-occlusion and normal textures. | `tools/models/anatomy.py`, `wardrobe.py`, `cast.py`, `stances.py`, `paint.py`, `bake.py` |
 | Classic yellow scooter, black city bicycle | Modelled in code | `tools/models/vehicles.py` |
 | Courier hatchback, saloon, SUV, pickup | Lofted bodies with lights, grilles, seams and wheels shaped onto them; the street versions are light meshes with the full model's detail baked into a texture | `tools/models/cars.py`, `parked.py` |
+| Sawa Erbil logo (pin with a delivery box over a road), drawn in code (`web/src/brand.ts`, `web/public/icons/`) | Own design | — |
 | Uniform badge, backpack print, car door livery, pizza lid print | Rendered from HTML with the IBM Plex Sans Arabic font (SIL Open Font License, already used by the app) | `tools/models/render-decals.mjs` |
 | Roads, barriers, pavements | Procedural canvas textures in the game, over photographed materials (below) | `web/src/game/textures.ts` |
 
