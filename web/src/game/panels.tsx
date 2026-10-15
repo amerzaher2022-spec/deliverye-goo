@@ -24,7 +24,11 @@ export function Sheet({
     <div className="overlay" onClick={onClose}>
       <div className="sheet" style={wide ? { width: 'min(780px, 100%)' } : undefined} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={typeof title === 'string' ? title : undefined}>
         <div className="sheet-head">
-          {icon && <Icon name={icon} size={18} style={{ color: 'var(--text-3)' }} />}
+          {icon && (
+            <span className="sheet-icon">
+              <Icon name={icon} size={17} />
+            </span>
+          )}
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label={t('close')} style={{ background: 'transparent' }}>
             <Icon name="close" size={18} />
@@ -81,7 +85,9 @@ export function MissionRow({
             </div>
           </div>
         </div>
-        <Reward coins={mission.reward_coins} />
+        <span className="reward-pill">
+          <Reward coins={mission.reward_coins} />
+        </span>
       </div>
       <dl className="kv" style={{ marginTop: 10 }}>
         <dt>{t('pickupAt')}</dt>
@@ -95,11 +101,15 @@ export function MissionRow({
         <dd className="muted">{pick(mission.package_ar, mission.package_en)}</dd>
       </dl>
       <div className="row-between" style={{ marginTop: 10 }}>
-        <span className="small faint num" style={{ display: 'flex', gap: 12 }}>
-          <span>{fmtDistance(mission.est_distance_m, lang)}</span>
-          <span>{mission.time_limit_s ? fmtClock(mission.time_limit_s) : t('noTimeLimit')}</span>
+        <span className="mission-meta num">
           <span>
-            +{mission.reward_xp} {t('xp')}
+            <Icon name="route" size={14} /> {fmtDistance(mission.est_distance_m, lang)}
+          </span>
+          <span>
+            <Icon name="clock" size={14} /> {mission.time_limit_s ? fmtClock(mission.time_limit_s) : t('noTimeLimit')}
+          </span>
+          <span>
+            <Icon name="star" size={14} /> +{mission.reward_xp} {t('xp')}
           </span>
         </span>
         <button className="btn primary" onClick={onAccept} disabled={busy || disabled} data-testid={`accept-${mission.id}`}>

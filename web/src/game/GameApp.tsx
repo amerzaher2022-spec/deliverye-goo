@@ -414,6 +414,11 @@ export default function GameApp() {
   const xpSpan = player ? Math.max(1, player.xp_for_next - player.xp_level_start) : 1;
   const nearMerchant = hud?.nearMerchantId ? merchantMap.get(hud.nearMerchantId) : undefined;
   const spec = VEHICLE_SPECS[menuVehicle];
+  const specMax = {
+    maxSpeed: Math.max(...VEHICLES.map((v) => VEHICLE_SPECS[v].maxSpeed)),
+    acceleration: Math.max(...VEHICLES.map((v) => VEHICLE_SPECS[v].acceleration)),
+    steering: Math.max(...VEHICLES.map((v) => VEHICLE_SPECS[v].steering)),
+  };
   const vehicleLocked = player ? !player.unlocked_vehicles.includes(menuVehicle) : false;
   const vehicleClass: Record<VehicleId, [string, string]> = {
     bicycle: ['دراجة توصيل خفيفة', 'Light courier bicycle'],
@@ -429,12 +434,9 @@ export default function GameApp() {
       {!world && (
         <div className="loading-screen">
           <div>
-            <div className="brand" style={{ justifyContent: 'center' }}>
-              <span className="brand-mark">
-                <Icon name="package" size={18} />
-              </span>
-              {t('appName')}
-            </div>
+            <img className="loading-logo" src="/icons/icon.svg" alt="" width={88} height={88} />
+            <div className="loading-name">{t('appName')}</div>
+            <div className="loading-sub">{lang === 'ar' ? 'SAWA ERBIL' : 'سوا اربيل'}</div>
             <div className="bar">
               <i />
             </div>
@@ -448,14 +450,14 @@ export default function GameApp() {
       {world && player && screen === 'menu' && (
         <div className="menu" data-testid="main-menu">
           <div className="menu-col">
-            <div className="brand">
-              <img className="brand-logo" src="/icons/icon.svg" alt="" width={28} height={28} />
-              {lang === 'ar' ? 'SAWA ERBIL' : 'سوا اربيل'}
+            <div className="lockup">
+              <img className="lockup-logo" src="/icons/icon.svg" alt="" width={64} height={64} />
+              <div>
+                <h1>{t('appName')}</h1>
+                <div className="lockup-sub">{lang === 'ar' ? 'SAWA ERBIL' : 'سوا اربيل'}</div>
+              </div>
             </div>
-            <div>
-              <h1>{t('appName')}</h1>
-              <p className="lede">{t('tagline')}</p>
-            </div>
+            <p className="lede">{t('tagline')}</p>
 
             <div className="panel vehicle-panel" data-testid="vehicle-card">
               <div className="head">
@@ -473,16 +475,22 @@ export default function GameApp() {
               <div className="specs">
                 <span>{t('topSpeed')}</span>
                 <span className="bar">
-                  <i style={{ width: `${(spec.maxSpeed / 26) * 100}%` }} />
+                  <i style={{ width: `${(spec.maxSpeed / specMax.maxSpeed) * 100}%` }} />
                 </span>
+                <b className="num">
+                  {Math.round(spec.maxSpeed * 3.6)}
+                  <small> {lang === 'ar' ? 'كم/س' : 'km/h'}</small>
+                </b>
                 <span>{t('acceleration')}</span>
                 <span className="bar">
-                  <i style={{ width: `${(spec.acceleration / 7) * 100}%` }} />
+                  <i style={{ width: `${(spec.acceleration / specMax.acceleration) * 100}%` }} />
                 </span>
+                <b className="num">{Math.round((spec.acceleration / specMax.acceleration) * 10)}</b>
                 <span>{t('handling')}</span>
                 <span className="bar">
-                  <i style={{ width: `${(spec.steering / 2.8) * 100}%` }} />
+                  <i style={{ width: `${(spec.steering / specMax.steering) * 100}%` }} />
                 </span>
+                <b className="num">{Math.round((spec.steering / specMax.steering) * 10)}</b>
               </div>
               <div className="row-between" style={{ marginTop: 12 }}>
                 <div className="vehicle-dots">

@@ -19,12 +19,15 @@
 
 | Token | Value | Use |
 |---|---|---|
-| Charcoal | `#0e0f11` | App background, dark surfaces |
-| Graphite | `#16181b` / `#1f2226` / `#2a2e33` | Game panels and sheets |
-| Warm white | `#f3efe8` | Primary text on dark |
-| Amber | `#e38b1d` (game) / `#c7740f` (dashboard) | Primary action, route, active state, sponsorship |
-| Dashboard background | `#f5f4f1` | Neutral warm surface |
+| Ink | `#08100f` | App background |
+| Deep teal glass | `#0c1817` / `#132321` / `#1c302e` | Game panels and sheets (HUD panels are 80 % opaque over the scene) |
+| Cream | `#f6f1e6` / `#fff6e2` | Primary text on dark, headings |
+| Teal | `#0b7a75`, light `#15a69e`, soft `#5fd0c6`, deep `#06423f` | Brand: logo, level badge, selected tab, section labels, icons, active touch pads, dashboard primary |
+| Amber | `#f6a821` (game) / `#d98a0b` (dashboard) | The one thing to press (gradient button with a soft glow), coins and rewards, route line, sponsorship |
+| Dashboard background | `#f5f4f1` | Neutral warm surface; dark teal sidebar |
 | Status | green `#1f8a5b`, amber `#a8650a`, red `#c2412d` | Always with a dot and a label |
+
+The colours come from the Sawa Erbil mark (`web/src/brand.ts`). Type is IBM Plex Sans Arabic (400–700), shipped with the app in `web/public/fonts` (SIL Open Font License) so it looks the same offline and on every phone.
 
 Radius 10–16 px, 8-point spacing, a single shadow style per surface, glass blur only on HUD panels over the 3D scene.
 
@@ -33,6 +36,8 @@ Radius 10–16 px, 8-point spacing, a single shadow style per surface, glass blu
 - Thumb controls are pinned to physical left and right in both RTL and LTR. Text and panels follow the reading direction.
 - The HUD keeps the road clear: status top-start, actions top-end, mission card top-centre, minimap below the actions, speed bottom-centre.
 - Safe-area insets are applied on every edge. The phone breakpoints (≤760 px wide, ≤480 px tall) re-stack the HUD and menu.
+- In the rider's-eye view the speed readout moves under the minimap (the handlebar has its own dial) and the dispatcher's message sits under the mission card; on a phone held sideways the message briefly takes the card's place.
+- On a phone held sideways the menu stays beside the rider and fits the screen without scrolling.
 - Charts use the validated categorical palette in fixed order, with a legend, hover values and a table view.
 
 ## Vehicles and people (third pass)

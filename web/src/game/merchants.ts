@@ -286,7 +286,7 @@ export class MerchantView {
     sprite.position.copy(v3(this.frame.centre, h + (this.merchant.building_type === 'office' ? 9 : 7.5)));
     void loadImage(this.merchant.logo_url).then((img) => {
       if (this.disposed) return;
-      mat.map = pinTexture(img, '#e38b1d');
+      mat.map = pinTexture(img, '#f6a821');
       mat.needsUpdate = true;
     });
     this.pin = sprite;
@@ -394,7 +394,7 @@ function exclamation() {
 
 /** Mission marker: soft light column, kerb ring and a person with the order. */
 export function targetBeacon(kind: 'pickup' | 'dropoff', at: LocalPoint, shirt = '#3a3d41', who?: PersonId) {
-  const color = '#e38b1d';
+  const color = '#f6a821';
   const grp = new THREE.Group();
   grp.position.copy(v3(at));
   const column = new THREE.Mesh(

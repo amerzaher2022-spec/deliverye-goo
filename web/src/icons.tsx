@@ -81,8 +81,9 @@ export function Icon({ name, size = 20, strokeWidth = 1.75, ...rest }: { name: I
 export function Coin({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="7" fill="#d98a1e" />
-      <circle cx="8" cy="8" r="4.6" fill="none" stroke="#f6c770" strokeWidth="1.3" />
+      <circle cx="8" cy="8" r="7.2" fill="#c77a06" />
+      <circle cx="8" cy="7.6" r="6.6" fill="#f6a821" />
+      <circle cx="8" cy="7.6" r="4.3" fill="none" stroke="#ffe3a3" strokeWidth="1.2" />
     </svg>
   );
 }

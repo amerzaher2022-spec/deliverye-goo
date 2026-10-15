@@ -157,7 +157,7 @@ export function carDash(): Dash {
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.04, 20), soft);
   hub.rotation.x = Math.PI / 2;
   wheel.add(hub);
-  const badge = new THREE.Mesh(new THREE.CircleGeometry(0.022, 20), new THREE.MeshStandardMaterial({ color: '#e38b1d', roughness: 0.3, metalness: 0.4 }));
+  const badge = new THREE.Mesh(new THREE.CircleGeometry(0.022, 20), new THREE.MeshStandardMaterial({ color: '#f6a821', roughness: 0.3, metalness: 0.4 }));
   badge.position.z = -0.021;
   badge.rotation.y = Math.PI;
   wheel.add(badge);

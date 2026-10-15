@@ -30,7 +30,7 @@ function drawMap(
   const { graph, hud } = props;
   ctx.save();
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#1b1e22';
+  ctx.fillStyle = '#0e1a19';
   ctx.fillRect(0, 0, w, h);
   ctx.translate(w / 2, h / 2);
   ctx.rotate(rotate);
@@ -42,7 +42,7 @@ function drawMap(
     for (const { road, points } of graph.polylines) {
       ctx.beginPath();
       points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-      ctx.strokeStyle = pass ? (road.kind === 'arterial' ? '#5b6068' : '#41454c') : '#2a2d32';
+      ctx.strokeStyle = pass ? (road.kind === 'arterial' ? '#5a716d' : '#3d524f') : '#1f2c2a';
       ctx.lineWidth = Math.max(road.width + (pass ? 0 : 6), 4 / scale);
       ctx.stroke();
     }
@@ -50,7 +50,7 @@ function drawMap(
   if (hud?.route && hud.route.length > 1) {
     ctx.beginPath();
     hud.route.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-    ctx.strokeStyle = '#f1a540';
+    ctx.strokeStyle = '#ffbd45';
     ctx.lineWidth = Math.max(6, 5 / scale);
     ctx.stroke();
   }
@@ -62,16 +62,16 @@ function drawMap(
     ctx.fillStyle = m.category?.color ?? m.brand_color;
     ctx.fill();
     ctx.lineWidth = (featured ? 2 : 1.25) / scale;
-    ctx.strokeStyle = featured ? '#f1a540' : 'rgba(243,239,232,0.85)';
+    ctx.strokeStyle = featured ? '#ffbd45' : 'rgba(243,239,232,0.85)';
     ctx.stroke();
   }
   if (hud?.target) {
     ctx.beginPath();
     ctx.arc(hud.target.x, hud.target.y, 9 / scale, 0, Math.PI * 2);
-    ctx.fillStyle = '#1b1e22';
+    ctx.fillStyle = '#0e1a19';
     ctx.fill();
     ctx.lineWidth = 3.5 / scale;
-    ctx.strokeStyle = '#f1a540';
+    ctx.strokeStyle = '#ffbd45';
     ctx.stroke();
   }
   if (hud) {
@@ -86,7 +86,7 @@ function drawMap(
     ctx.lineTo(-7, -7);
     ctx.closePath();
     ctx.fillStyle = '#f3efe8';
-    ctx.strokeStyle = '#1b1e22';
+    ctx.strokeStyle = '#0e1a19';
     ctx.lineWidth = 2.5;
     ctx.fill();
     ctx.stroke();

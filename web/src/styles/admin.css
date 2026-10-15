@@ -1,4 +1,4 @@
-/* Dashboard: neutral SaaS surface, charcoal primary, amber accent. */
+/* Dashboard: light working surface, Sawa Erbil teal primary, amber accent. */
 
 .admin {
   --bg: #f5f4f1;
@@ -10,9 +10,9 @@
   --line: #e6e3dd;
   --line-2: #d8d4cc;
   --hover: #f3f1ec;
-  --primary: #1f2023;
-  --accent: #c7740f;
-  --accent-soft: #fbf1e3;
+  --primary: #0b7a75;
+  --accent: #d98a0b;
+  --accent-soft: #fdf2df;
   --good: #1f8a5b;
   --good-soft: #e5f4ec;
   --warn: #a8650a;
@@ -50,8 +50,8 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #18191b;
-  color: #d9d6cf;
+  background: linear-gradient(180deg, #0b2a28, #081817);
+  color: #d3e0dd;
   padding: 16px 12px;
   gap: 4px;
   overflow-y: auto;
@@ -106,7 +106,7 @@
   width: 100%;
   border: 0;
   background: transparent;
-  color: #c9c5bd;
+  color: #bccdc9;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 0.88rem;
@@ -119,7 +119,7 @@
   color: #f3efe8;
 }
 .a-nav-item.on {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(95, 208, 198, 0.12);
   color: #fff;
 }
 .a-nav-item.on::before {
@@ -156,8 +156,8 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #2c2e31;
-  color: #f3efe8;
+  background: #0b7a75;
+  color: #fff6e2;
   display: grid;
   place-items: center;
   font-weight: 600;
@@ -251,7 +251,7 @@
   color: #fff;
 }
 .a-btn.primary:hover {
-  background: #33353a;
+  background: #0d8d87;
 }
 .a-btn.good {
   background: var(--good);

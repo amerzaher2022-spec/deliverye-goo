@@ -1055,7 +1055,7 @@ function chevronTexture() {
   c.width = 64;
   c.height = 64;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = 'rgba(227,139,29,0.5)';
+  ctx.fillStyle = 'rgba(246,168,33,0.46)';
   ctx.fillRect(0, 0, 64, 64);
   ctx.strokeStyle = 'rgba(255,244,226,0.95)';
   ctx.lineWidth = 7;

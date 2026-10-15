@@ -40,3 +40,7 @@ Every sound (engine, tyres, brakes, impacts, rain, horns) is synthesised in the 
 ## Live weather (optional)
 
 When the player turns on "Erbil's current weather" in the settings, the game asks Open-Meteo (https://open-meteo.com, free, no key; weather data CC BY 4.0) for the current conditions in Erbil, every 10 minutes. It is off by default; without a connection the game keeps its own automatic weather.
+
+## Font
+
+IBM Plex Sans Arabic (Arabic and Latin subsets, weights 400–700), © IBM Corp., SIL Open Font License 1.1, shipped in `web/public/fonts` with its licence (`OFL-IBM-Plex-Sans-Arabic.txt`); files taken from the `@fontsource/ibm-plex-sans-arabic` package.
