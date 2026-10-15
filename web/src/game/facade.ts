@@ -23,6 +23,8 @@ export type FacadeStyle = keyof typeof FACADE_STYLES;
 export const facadeUniforms = {
   uNight: { value: 0 },
   uWet: { value: 0 },
+  /** share of shops with their shutters down (late at night most are shut) */
+  uClosed: { value: 0.05 },
 };
 
 const GLSL_HEAD = /* glsl */ `
@@ -41,6 +43,7 @@ const GLSL_HEAD = /* glsl */ `
 
 const GLSL_FRAG_HEAD = /* glsl */ `
   uniform float uNight;
+  uniform float uClosed;
   uniform float uWet;
   varying vec4 vStyle;
   varying vec3 vTint;
@@ -99,6 +102,13 @@ void facadeAt(vec2 W, float fDetail, out vec4 fac, out float fGround, out float 
         // some shops have their shutter half down
         if (fHash(vec2(unit, seed)) > 0.72) { float sh = step(1.6 + fHash(vec2(unit + 3.0, seed)) * 1.4, v) * glass; fac.x *= 1.0 - sh; fac.y = max(fac.y, sh * 0.6); }
         fac.w = glass * step(0.35, fHash(vec2(unit, seed + 7.0)));
+        // closed for the night: the roller shutter is right down (ribbed steel), no light behind it
+        if (fHash(vec2(unit + 11.0, seed)) < uClosed) {
+          float rib = 0.5 + 0.18 * step(0.5, fract(v * 7.0));
+          fac.x = 0.0;
+          fac.y = max(fac.y, glass * rib);
+          fac.w = 0.0;
+        }
       } else {
         // entrance door every 14 m, small windows elsewhere
         float bay = 3.5;
@@ -271,6 +281,7 @@ export function facadeMaterial(quality: 'low' | 'medium' | 'high', surface: 'pla
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = facadeUniforms.uNight;
     shader.uniforms.uWet = facadeUniforms.uWet;
+    shader.uniforms.uClosed = facadeUniforms.uClosed;
     shader.vertexShader = GLSL_HEAD + shader.vertexShader.replace(
       '#include <uv_vertex>',
       `#include <uv_vertex>

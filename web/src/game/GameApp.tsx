@@ -178,6 +178,7 @@ export default function GameApp() {
         onCrash: (r) => {
           if (r.fell) toast(lang === 'ar' ? 'وقعت! ستعود إلى الطريق' : 'You came off! Back to the road in a moment');
         },
+        onPedestrian: () => toast(lang === 'ar' ? 'انتبه للمارّة! خفّف السرعة على الرصيف' : 'Watch the pedestrians! Slow down near the pavement'),
         onRedLight: () => toast(lang === 'ar' ? 'قطعت الإشارة الحمراء! انتبه للمرور' : 'You ran a red light! Watch the traffic'),
         onSlow: (q) => setSettingsState((s) => {
           if (!s.autoQuality || s.quality === q) return s;
@@ -666,7 +667,7 @@ export default function GameApp() {
             <span>{lang === 'ar' ? 'كم/س' : 'KM/H'}</span>
           </div>
 
-          <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} car={player?.vehicle === 'car'} onHorn={() => engineRef.current?.audio.horn(0, player?.vehicle === 'car' ? 1 : 1.25)} />
+          <TouchControls input={engineRef.current?.touch ?? { throttle: 0, brake: 0, steer: 0 }} mode={settings.controls} car={player?.vehicle === 'car'} onHorn={() => engineRef.current?.horn()} />
           {portrait && showRotate && (
             <div className="panel rotate-hint">
               <Icon name="reset" size={14} /> {t('rotateHint')}

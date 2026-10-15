@@ -127,6 +127,8 @@ export class Traffic {
   private started = false;
   /** horn events since the last read (positions) */
   horns: { x: number; y: number }[] = [];
+  /** people walking about (drivers stop for them) */
+  walkers: { x: number; y: number }[] = [];
   /** per lamp: junction, road, and which colour it shows */
   private lampInfo: { j: Junction; road: string; colour: Light }[] = [];
   private lampState: Light[] = [];
@@ -229,6 +231,37 @@ export class Traffic {
     const off = e.offsets[Math.min(k, e.lanes - 1)]!;
     // right of the direction of travel: (dy, -dx)
     return out.set(e.ax + e.dx * s + e.dy * off, e.ay + e.dy * s - e.dx * off);
+  }
+
+  /** The signalled junction nearest (x, y) within r metres, if any. */
+  signalNear(x: number, y: number, r: number): { x: number; y: number; r: number } | null {
+    let best: Junction | null = null;
+    let bd = r;
+    for (const j of this.junctions) {
+      const d = Math.hypot(j.x - x, j.y - y);
+      if (d < bd) {
+        bd = d;
+        best = j;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Seconds the cars on `road` will still be held at the junction at (x, y): 0 while they have green or
+   * yellow, -1 if that street has no signal there.
+   */
+  redFor(x: number, y: number, road: string): number {
+    const j = this.junctions.find((q) => Math.abs(q.x - x) < 0.5 && Math.abs(q.y - y) < 0.5);
+    if (!j) return -1;
+    const i = j.roads.indexOf(this.streetOf(road));
+    if (i < 0) return -1;
+    const cycle = PHASE * j.roads.length;
+    const t = (((this.time + j.offset) % cycle) + cycle) % cycle;
+    const start = i * PHASE;
+    const u = (((t - start) % cycle) + cycle) % cycle;
+    if (u < GREEN + YELLOW) return 0;
+    return cycle - u;
   }
 
   lightFor(j: Junction, road: string): Light {
@@ -573,6 +606,7 @@ export class Traffic {
       test(c.x, c.y, c.box.hw);
     }
     if (Math.abs((player.z ?? 0) - car.z) < 2) test(player.x, player.y, player.r);
+    if (Math.abs(car.z) < 1) for (const w of this.walkers) test(w.x, w.y, 0.5);
     return gap;
   }
 

@@ -558,6 +558,9 @@ export class Atmosphere {
     surfaceUniforms.uSkyCol.value.copy(fogCol).multiplyScalar(0.9);
     facadeUniforms.uNight.value = this.night;
     facadeUniforms.uWet.value = this.wet;
+    // shops close in the late evening (Erbil's high streets stay open late) and open from the morning
+    const h = this.hour;
+    facadeUniforms.uClosed.value = h >= 23 || h < 6 ? 0.8 : h < 9 ? 0.8 - ((h - 6) / 3) * 0.75 : h > 21 ? 0.05 + ((h - 21) / 2) * 0.75 : 0.05;
   }
 
   /** Lower grip on wet roads: 1 when dry, about 0.68 in a downpour with standing water. */

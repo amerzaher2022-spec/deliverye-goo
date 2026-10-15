@@ -10,6 +10,7 @@ import type { BuildingType, DistrictData, Merchant } from '../../../shared/types
 import type { Box } from './collision';
 import { disposeOwned, person, type PersonId } from './assets';
 import { MAT, bakeStatic, pedestrian } from './models';
+import { Figure, canRig } from './rig';
 import { v3 } from './world';
 import { facadeTexture, hazardTexture, loadImage, pinTexture, shade, signTexture, stripeTexture } from './textures';
 
@@ -194,18 +195,7 @@ export class MerchantView {
         awning.rotation.x = 0.26;
         awning.castShadow = true;
         g.add(awning);
-        if (this.quality !== 'low') {
-          const top = new THREE.CylinderGeometry(0.42, 0.42, 0.04, 16);
-          const leg = new THREE.CylinderGeometry(0.03, 0.03, 0.74, 6);
-          for (const x of [-4.5, -1.5, 1.5]) {
-            const tt = new THREE.Mesh(top, MAT.plastic('#2a2c2f'));
-            tt.position.set(x, 0.76, d / 2 + 3.6);
-            const l = new THREE.Mesh(leg, MAT.plastic('#2a2c2f'));
-            l.position.set(x, 0.37, d / 2 + 3.6);
-            g.add(tt, l);
-            for (const cz of [-0.65, 0.65]) g.add(box(0.42, 0.45, 0.42, MAT.plastic('#3a3d41'), x, 0.23, d / 2 + 3.6 + cz));
-          }
-        }
+        // the terrace tables and chairs are loose props (props.ts) that can be knocked over
       }
       // a couple of window AC units on the upper floors
       for (const x of [-w / 2 + 2.2, w / 2 - 2.2]) g.add(box(0.9, 0.55, 0.4, lambert('#d4d5d2'), x, 8.5, d / 2 + 0.25));
@@ -409,7 +399,10 @@ export function targetBeacon(kind: 'pickup' | 'dropoff', at: LocalPoint, shirt =
   const fill = new THREE.Mesh(new THREE.CircleGeometry(3.3, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, depthWrite: false }));
   fill.rotation.x = -Math.PI / 2;
   fill.position.y = 0.19;
-  const model = who ? person(who) : null;
+  // the person moves (looks round, waves) when their figure can be rigged
+  const fig = who && canRig(who) ? new Figure(who) : null;
+  const model = fig ? fig.root : who ? person(who) : null;
+  if (fig) model!.userData.figure = fig;
   const p = model ?? pedestrian(kind === 'pickup' ? shirt : '#4b5563', kind === 'pickup');
   p.name = 'person';
   // generated people face +z, the procedural fallback faces -z

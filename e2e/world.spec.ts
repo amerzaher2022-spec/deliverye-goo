@@ -1,7 +1,8 @@
 // The living world, checked in a real browser (software GPU, low quality so frames come quickly):
 // a crash into a building wall throws the scooter down and the rider is put back on the road; the
 // mirrors really render the street behind; night turns on lamps, car lights and lit windows; rain wets
-// the road, lowers grip and dries up afterwards.
+// the road, lowers grip and dries up afterwards. At medium quality people walk the pavements and street
+// furniture can be knocked over.
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -9,11 +10,11 @@ async function frames(page: Page, n: number) {
   for (let i = 0; i < n; i++) await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(0))));
 }
 
-async function startGame(page: Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('dg.settings', JSON.stringify({ quality: 'low', autoQuality: false, controls: 'buttons', camera: 'rider' }));
+async function startGame(page: Page, quality = 'low') {
+  await page.addInitScript((q) => {
+    localStorage.setItem('dg.settings', JSON.stringify({ quality: q, autoQuality: false, controls: 'buttons', camera: 'rider' }));
     localStorage.setItem('dg.lang', 'en');
-  });
+  }, quality);
   await page.goto('/?debug=1');
   await expect(page.getByTestId('main-menu')).toBeVisible({ timeout: 120_000 });
   await page.waitForFunction(() => (window as any).__dg);
@@ -151,4 +152,38 @@ test('night: street lamps, car lights and windows come on; rain wets the road an
   expect(dry.mid).toBeGreaterThan(0);
   expect(dry.end).toBe(0);
   expect(dry.grip).toBeGreaterThan(0.95);
+});
+
+test('people walk the pavements and a cone gets knocked over', async ({ page }) => {
+  test.setTimeout(240_000);
+  await startGame(page, 'medium');
+  const r = await page.evaluate(() => {
+    const e = (window as any).__dg.engine;
+    e.setPaused(true);
+    // run the world by hand for 8 seconds of game time
+    for (let i = 0; i < 40; i++) e.update(1 / 5, (e.elapsed += 1 / 5));
+    const people = e.walkers.list.filter((w: any) => w.active);
+    const start = people.map((w: any) => ({ x: w.x, y: w.y }));
+    for (let i = 0; i < 20; i++) e.update(1 / 10, (e.elapsed += 1 / 10));
+    const moved = people.filter((w: any, k: number) => Math.hypot(w.x - start[k].x, w.y - start[k].y) > 0.5).length;
+    // ride into the nearest cone at 30 km/h
+    const v = e.vehicle;
+    const cone = e.props.props.filter((p: any) => p.kind === 'cone').sort((a: any, b: any) => Math.hypot(a.hx - v.x, a.hy - v.y) - Math.hypot(b.hx - v.x, b.hy - v.y))[0];
+    v.x = cone.hx - 6;
+    v.y = cone.hy;
+    v.heading = Math.PI / 2;
+    v.speed = 8.5;
+    v.sync();
+    for (let i = 0; i < 40 && !cone.moved; i++) {
+      v.speed = 8.5;
+      e.update(1 / 30, (e.elapsed += 1 / 30));
+    }
+    for (let i = 0; i < 20; i++) e.update(1 / 30, (e.elapsed += 1 / 30));
+    return { walking: people.length, moved, coneMoved: cone.moved, tilt: cone.tilt, shift: Math.hypot(cone.x - cone.hx, cone.y - cone.hy) };
+  });
+  expect(r.walking).toBeGreaterThan(3);
+  expect(r.moved).toBeGreaterThan(1);
+  expect(r.coneMoved).toBe(true);
+  expect(r.shift).toBeGreaterThan(0.5);
+  expect(Math.abs(r.tilt)).toBeGreaterThan(1);
 });

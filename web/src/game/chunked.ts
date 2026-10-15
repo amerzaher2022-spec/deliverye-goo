@@ -112,6 +112,12 @@ export class ChunkedInstances {
     }
   }
 
+  /** Re-upload only the square holding instance `index`. */
+  dirty(index: number) {
+    const w = this.where[index];
+    if (w) w.mesh.instanceMatrix.needsUpdate = true;
+  }
+
   markDirty() {
     for (const m of this.meshes) m.instanceMatrix.needsUpdate = true;
   }

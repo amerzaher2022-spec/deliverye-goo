@@ -11,6 +11,10 @@ import type { DistrictData, Merchant, MissionRun, VehicleId } from '../../../sha
 import { disposeOwned } from './assets';
 import { circleVsBox } from './collision';
 import { Crowd, CROWD_SIZE } from './crowd';
+import { Walkers } from './walkers';
+import type { Figure } from './rig';
+import { Props } from './props';
+import { Spray } from './spray';
 import { MerchantView, merchantFrame, roleFor, targetBeacon } from './merchants';
 import { Vehicle, type DriveInput, type ImpactResult } from './vehicle';
 import { ribbon, ROAD_TOP, v3, World, type Quality } from './world';
@@ -54,6 +58,8 @@ export interface EngineCallbacks {
   onBump: (speed: number) => void;
   /** a collision: how hard, whether the bike went down or the engine stalled */
   onCrash?: (r: ImpactResult) => void;
+  /** the player ran into someone walking */
+  onPedestrian?: () => void;
   /** the player drove through a red light */
   onRedLight?: () => void;
   /** frame rate stayed low: the engine suggests a lower quality level */
@@ -74,6 +80,10 @@ export class Engine {
   private vehicle!: Vehicle;
   private merchants = new Map<number, MerchantView>();
   private crowd = new Crowd();
+  walkers: Walkers | null = null;
+  props: Props | null = null;
+  private spray = new Spray();
+  private wheelPts = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   private traffic: Traffic | null = null;
   /** direction towards the sun (from the sky photo) and the horizon colour for the haze */
   private sunDir = new THREE.Vector3(-150, 160, 110).normalize();
@@ -263,7 +273,19 @@ export class Engine {
     this.traffic = new Traffic(this.graph, this.district, this.quality, this.trafficDensity);
     this.graded = hasGradeSeparation(this.graph);
     this.scene.add(this.traffic.group);
+    if (this.walkers) {
+      this.scene.remove(this.walkers.group);
+      this.walkers.dispose();
+    }
+    this.walkers = new Walkers(this.graph, this.world.grid, () => this.traffic, this.quality);
+    this.scene.add(this.walkers.group);
     this.setMerchants(merchants);
+    if (this.props) {
+      this.scene.remove(this.props.group);
+      this.props.dispose();
+    }
+    this.props = new Props(this.graph, this.world.grid, [...this.merchants.values()].map((m) => ({ merchant: m.merchant, frame: m.frame })), this.quality);
+    this.scene.add(this.props.group);
   }
 
   /** A start point on a ground-level street a couple of hundred metres before the Iskan tunnel, facing it. */
@@ -535,11 +557,17 @@ export class Engine {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     if (e.type === 'keydown') {
       if (!e.repeat && e.code === 'KeyR') this.resetToRoad();
-      if (!e.repeat && e.code === 'KeyH') this.audio.horn(0, this.vehicle.id === 'car' ? 1 : 1.25);
+      if (!e.repeat && e.code === 'KeyH') this.horn();
       this.keys.add(e.code);
     } else this.keys.delete(e.code);
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   };
+
+  /** The player sounds the horn: people nearby stop and look round. */
+  horn() {
+    this.audio.horn(0, this.vehicle.id === 'car' ? 1 : 1.25);
+    this.walkers?.horn(this.vehicle.x, this.vehicle.y);
+  }
 
   private onPointerDown = (e: PointerEvent) => {
     this.pointerDown = { x: e.clientX, y: e.clientY, t: performance.now() };
@@ -653,8 +681,31 @@ export class Engine {
     const now = performance.now();
     this.traffic?.update(dt, { x: v.x, y: v.y, r: v.spec.radius, z: v.z, h: v.heading }, now);
     if (this.traffic?.horns.length) {
-      for (const h of this.traffic.horns) this.audio.horn(Math.hypot(h.x - v.x, h.y - v.y), 0.85 + Math.random() * 0.35);
+      for (const h of this.traffic.horns) {
+        this.audio.horn(Math.hypot(h.x - v.x, h.y - v.y), 0.85 + Math.random() * 0.35);
+        this.walkers?.horn(h.x, h.y);
+      }
       this.traffic.horns.length = 0;
+    }
+    if (this.walkers) {
+      // people walking: they dodge a rider coming at them; running into one slows you and upsets the order
+      const hits = this.walkers.update(dt, { x: v.x, y: v.y, h: v.heading, v: v.speed, r: v.spec.radius }, now, this.camera);
+      if (hits && !v.fallen) {
+        v.speed *= 0.4;
+        this.audio.impact(0.25);
+        this.cb.onPedestrian?.();
+      }
+      if (this.traffic) this.traffic.walkers = this.walkers.positions();
+    }
+    if (this.props) {
+      // bins, cones, café chairs: knocked about by the vehicle, slowing it a little
+      const fx = Math.sin(v.heading);
+      const fy = Math.cos(v.heading);
+      const knock = this.props.update(dt, v.shapes(), fx * v.speed, fy * v.speed, v.x, v.y);
+      if (knock.hit > 0.6) {
+        v.speed *= 1 - knock.drag;
+        this.audio.impact(Math.min(0.5, 0.08 + knock.hit * 0.03));
+      }
     }
     if (this.traffic && t - this.lightAt > 0.2) {
       this.lightAt = t;
@@ -665,6 +716,27 @@ export class Engine {
       }
     }
     for (const m of this.merchants.values()) m.update(t);
+    this.crowd.update(t, v.x, v.y, v.speed);
+    {
+      // tyre spray on a wet road
+      if (!this.spray.points.parent) this.scene.add(this.spray.points);
+      const fx = Math.sin(v.heading);
+      const fy = Math.cos(v.heading);
+      const car = v.id === 'car';
+      const wheels = car
+        ? [
+            [-1.3, 0.75],
+            [-1.3, -0.75],
+            [1.25, 0.75],
+            [1.25, -0.75],
+          ]
+        : [
+            [-0.62, 0],
+            [0.62, 0],
+          ];
+      const pts = wheels.map(([a, b], k) => this.wheelPts[k]!.set(v.x + fx * a! + fy * b!, v.z + 0.11, -(v.y + fy * a! - fx * b!)));
+      this.spray.update(dt, v.fallen ? [] : pts, { x: -fx, z: fy }, Math.abs(v.speed), this.atmos.wet, this.atmos.day);
+    }
     if (this.routeTex) this.routeTex.offset.y = -t * 1.2;
     this.animateBeacons(t);
     this.updateCamera(dt);
@@ -839,9 +911,32 @@ export class Engine {
     }
   }
 
+  private beaconDir = new THREE.Vector3();
+  private beaconPos = new THREE.Vector3();
+
   private animateBeacons(t: number) {
     const s = 1 + Math.sin(t * 4) * 0.12;
+    const v = this.vehicle;
     this.scene.traverse((o) => {
+      const fig = o.userData.figure as Figure | undefined;
+      if (fig && o.name === 'person') {
+        // the person with the order turns to watch the courier arrive; customers wave them in
+        o.getWorldPosition(this.beaconPos);
+        o.getWorldDirection(this.beaconDir);
+        const dx = v.x - this.beaconPos.x;
+        const dy = v.y + this.beaconPos.z;
+        const d = Math.hypot(dx, dy);
+        const fx = this.beaconDir.x;
+        const fy = -this.beaconDir.z;
+        const look = d < 40 ? Math.max(-1, Math.min(1, Math.atan2(fx * dy - fy * dx, fx * dx + fy * dy) / 1.4)) : 0;
+        const carrying = fig.id === 'staff' || fig.id === 'pizza_carrier';
+        const wave = !carrying && d < 22 && d > 3.5;
+        const ud = o.userData as { look?: number; amount?: number };
+        ud.look = (ud.look ?? 0) + (look - (ud.look ?? 0)) * 0.08;
+        ud.amount = Math.max(0, Math.min(1, (ud.amount ?? 0) + (wave ? 0.05 : -0.05)));
+        fig.pose({ speed: 0, phase: 0, look: ud.look, gesture: ud.amount > 0 ? 'wave' : 'none', amount: ud.amount, t });
+        return;
+      }
       if (o.name === 'pulse') o.scale.set(s, s, s);
       else if (o.name === 'bob') o.position.y = 3.3 + Math.sin(t * 3) * 0.25;
       else if (o.name === 'bang') {

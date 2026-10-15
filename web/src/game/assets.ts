@@ -12,6 +12,12 @@ export type ModelFile = 'scooter' | 'bicycle' | 'people' | 'car' | 'parked';
 
 const scenes: Partial<Record<ModelFile, THREE.Object3D>> = {};
 let atlas: THREE.Texture | null = null;
+let rig: unknown = null;
+
+/** Bone positions of the townspeople (tools/models/rig.py), used to animate them; null if not loaded. */
+export function peopleRig(): unknown {
+  return rig;
+}
 let pending: Promise<void> | null = null;
 
 function prepare(root: THREE.Object3D) {
@@ -51,8 +57,15 @@ export function loadModels(timeoutMs = 25000): Promise<void> {
       atlas = t;
     })
     .catch((e: unknown) => console.warn('parked car atlas not loaded', e));
+  const rigLoad = fetch('/models/people.rig.json')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d: unknown) => {
+      rig = d;
+    })
+    .catch((e: unknown) => console.warn('people rig not loaded', e));
   const all = Promise.all([
     atlasLoad,
+    rigLoad,
     loadPhotos(),
     loadBuildings(),
     ...files.map((f) =>

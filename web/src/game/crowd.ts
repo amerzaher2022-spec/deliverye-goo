@@ -1,13 +1,14 @@
-// People standing on the pavement outside businesses. They are static scenery:
-// every person is a clone of a generated model, and the whole crowd is merged
-// into one mesh per material so it costs a handful of draw calls. Each person
-// also gets a small collision box, so riders have to go around them.
+// People standing on the pavement outside businesses. When the figures can be rigged (rig.ts) each one
+// is a moving person who turns to watch a rider go past, and now and then waves when the rider stops
+// close by; otherwise the crowd is merged into one still mesh per material. Each person also gets a
+// small collision box, so riders have to go around them.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Merchant } from '../../../shared/types';
 import type { Box } from './collision';
 import { hasModel, person, type PersonId } from './assets';
+import { Figure, canRig } from './rig';
 import type { MerchantFrame } from './merchants';
 
 export const CROWD_SIZE = { low: 0, medium: 7, high: 14 } as const;
@@ -29,6 +30,7 @@ export function crowdRole(m: Merchant, k: number): PersonId {
 export class Crowd {
   readonly group = new THREE.Group();
   boxes: Box[] = [];
+  private figures: { fig: Figure; x: number; y: number; h: number; look: number; wave: number; friendly: boolean }[] = [];
 
   constructor() {
     this.group.name = 'crowd';
@@ -40,6 +42,25 @@ export class Crowd {
       (c as THREE.Mesh).geometry?.dispose();
     }
     this.boxes = [];
+    for (const f of this.figures) f.fig.dispose();
+    this.figures = [];
+  }
+
+  /** Heads turn to follow a rider passing within ~18 m; friendly ones wave when the rider stops close. */
+  update(t: number, px: number, py: number, speed: number) {
+    for (const [i, p] of this.figures.entries()) {
+      const dx = px - p.x;
+      const dy = py - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 60) continue;
+      const fx = Math.sin(p.h);
+      const fy = Math.cos(p.h);
+      const want = d < 18 ? Math.max(-1, Math.min(1, Math.atan2(fx * dy - fy * dx, fx * dx + fy * dy) / 1.4)) : Math.sin(t * 0.3 + i * 1.7) * 0.4;
+      p.look += (want - p.look) * 0.06;
+      const wave = p.friendly && d < 9 && Math.abs(speed) < 1.2;
+      p.wave = Math.max(0, Math.min(1, p.wave + (wave ? 0.04 : -0.04)));
+      p.fig.pose({ speed: 0, phase: 0, look: p.look, gesture: p.wave > 0 ? 'wave' : 'none', amount: p.wave, t: t + i });
+    }
   }
 
   /** Place up to `count` people outside the given businesses (deterministic for a given list). */
@@ -54,7 +75,9 @@ export class Crowd {
         if (placed >= count) break;
         const r = hash(m.id * 31 + round * 7);
         if (round === 1 && r < 0.5) continue;
-        const p = person(crowdRole(m, round));
+        const role = crowdRole(m, round);
+        const fig = canRig(role) ? new Figure(role) : null;
+        const p = fig ? fig.root : person(role);
         if (!p) continue;
         // on the pavement between the shopfront and the kerb, off to one side of the entrance
         const side = (round === 0 ? 1 : -1) * (r < 0.5 ? 1 : -1);
@@ -68,7 +91,10 @@ export class Crowd {
         const dy = f.front.x * Math.sin(turn) + f.front.y * Math.cos(turn);
         p.position.set(x, 0, -y);
         p.rotation.y = Math.atan2(dx, -dy);
-        tmp.add(p);
+        if (fig) {
+          this.group.add(p);
+          this.figures.push({ fig, x, y, h: Math.atan2(dx, dy), look: 0, wave: 0, friendly: hash(m.id * 5 + round) < 0.6 });
+        } else tmp.add(p);
         this.boxes.push({ cx: x, cy: y, ux: 1, uy: 0, hw: 0.35, hd: 0.35, id: `p${m.id}-${round}` });
         placed++;
       }

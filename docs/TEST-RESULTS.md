@@ -1,21 +1,28 @@
 # Test results
 
-Last run on 2026-10-14 (after the real buildings, day/night and weather, new vehicle physics, crashes, mirrors and road details) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
+Last run on 2026-10-15 (after the interactive street: walking people, knockable street furniture, living shops, night shutters, tyre spray) in the cloud build environment (Node 22, PostgreSQL 16, Chromium 1194 with a software GPU).
 
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | **pass** |
 | API, rules, geometry, sun path and cancel penalty | `npm test` | **35 / 35 passed** |
 | Production build | `npm run build` | **pass** |
-| Browser end-to-end | `npm run test:e2e` | **7 / 7 passed** |
+| Browser end-to-end | `npm run test:e2e` | **8 / 8 passed** |
 
 ## The living world, checked in the browser (`e2e/world.spec.ts`)
 
 1. **Crash:** the scooter is set on a building wall at 45 km/h. The impact throws it down without passing through the wall; the engine keeps running, and a moment later the rider is put back upright in a lane on the road ("back to the road" does it at once).
 2. **Mirrors:** both scooter mirrors' render targets hold a real picture of the street behind (mean brightness and contrast checked pixel by pixel).
 3. **Night and rain:** at 22:00 the street-lamp light pools, car lamps and lit windows are on and the sun is down. In heavy rain the rain is drawn, the road is fully wet, grip drops below 75 % and visibility (haze distance) drops under 260 m. After the rain stops the road dries over game time and grip returns.
+4. **Street life (medium quality):** at least four people are out walking near the start and most of them move along the pavement over two seconds of game time; riding into the nearest roadwork cone at 30 km/h shoves it more than half a metre and tips it onto its side.
 
 Screenshots taken while driving at medium quality (software GPU) were reviewed for: Kurdistan (60 m) Street near the Iskan tunnel by day, at dusk, at night and in heavy rain, from the chase and the rider's views; the Empire World area; the old town south of the citadel. Problems found and fixed in this pass: rain puddles looked like white patches (now dark water with a sky sheen at grazing angles); lit windows shimmered into speckles at night (an interpolated per-building seed was amplified by the hash — now snapped exactly; window edges are also anti-aliased); mirrors showed mostly sky (re-aimed along the road); the headlight beam was too short.
+
+## Interactive street (2026-10-15)
+
+Same harness, same place and view as below (rider, 13:00, clear, medium): **1.93 s** per frame on the software GPU with the walking people, street furniture, crowd and tyre spray in the scene (2.44–2.47 s in the last measurement; the engine update with all the new systems takes 7 ms of it). Checked by simulation in the browser over two minutes of game time: people waited at signalled junctions and 13 crossings were completed while the cars on that street were held at red; drivers stop for people in front of them; a rider coming straight at someone makes them jump aside with their hands up.
+
+Screenshots reviewed: the six townspeople walking (side and front), waving and startled, on a plain floor (rig check) and in the street; a cone knocked flying; the municipal bin and café table and chairs close up; shops with their shutters down at 23:30; tyre spray in heavy rain.
 
 ## Performance: measured before and after (2026-10-14, quality pass)
 
